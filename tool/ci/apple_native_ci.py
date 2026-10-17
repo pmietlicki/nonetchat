@@ -166,8 +166,8 @@ def main():
         target = prepare(ROOT)
         if args.command == 'build':
             subprocess.run(['flutter', 'pub', 'get'], cwd=target, check=True)
-            subprocess.run(['flutter', 'build', 'macos', '--release'], cwd=target, check=True)
             subprocess.run(['flutter', 'build', 'ios', '--release', '--no-codesign'], cwd=target, check=True)
+            subprocess.run(['flutter', 'build', 'macos', '--release'], cwd=target, check=True)
             print('Native compilation passed; full NoNetChat app and radios are NOT validated')
 
 

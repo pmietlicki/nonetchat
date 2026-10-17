@@ -152,7 +152,7 @@ private final class AppleTransferPipe {
     let options = tls.securityProtocolOptions
     sec_protocol_options_set_min_tls_protocol_version(options, .TLSv12)
     sec_protocol_options_set_max_tls_protocol_version(options, .TLSv12)
-    sec_protocol_options_append_tls_ciphersuite(options, tls_ciphersuite_t(rawValue: TLS_PSK_WITH_AES_128_GCM_SHA256)!)
+    sec_protocol_options_append_tls_ciphersuite(options, tls_ciphersuite_t(rawValue: UInt16(TLS_PSK_WITH_AES_128_GCM_SHA256))!)
     let key = secret.withUnsafeBytes { DispatchData(bytes: $0) }
     let identity = Data(token.utf8).withUnsafeBytes { DispatchData(bytes: $0) }
     sec_protocol_options_add_pre_shared_key(options, key as dispatch_data_t, identity as dispatch_data_t)
