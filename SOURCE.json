@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "sourceRevision": "0aeaf3d3c61fb05865442c09127be36e0eb726e0",
+  "scope": "Apple native compilation only",
+  "sha256": {
+    "apple/AppleFastLanePlugin.swift": "dfe9942a2d558392769bdd72d98bfba00579da50e2706efc83ed25c16f1e139f",
+    "ios/Runner/AppleHotspotPlugin.swift": "a126ace03011fe230d393353bf8e9ed624d6afce38e4153916ec7beeb1620a8a",
+    "ios/Runner/AppleAwarePairing.swift": "a998f75169a1707c43300e0d0c4db9dfae8845d1ea8a9880b6383fa152a5ec4a",
+    "ios/Runner/AppDelegate.swift": "43311ca86369b3348622246c6ef4cef463ba9b4455b881734c2d177c3026c204",
+    "apple/NotificationActions.swift": "1022805a3a81d47dd6f051a7e2b5151f54a3e90a98881396663f604f86d207f5",
+    "apple/ArrivalNotifications.swift": "d19ee4bef5da52e92097bc198f15aa373d03eed956b7a86323d2bf04530c37db",
+    "macos/Runner/MainFlutterWindow.swift": "3516abc374ed0d2608b0568d6ebe38571fb5347ff72cf098c665a32b9e064da4",
+    "macos/Runner/AppDelegate.swift": "ce9dbe45a57c59e85519da50a26c471615b9c8cdd85a8f4a39d2e480e62a4af4",
+    "apple/APPLE-SAMPLE-LICENSE.txt": "d4750cf7c6bbdca0c73dea5157c03932cb095c0d66ab2745305fb184ba86a936",
+    "tool/ci/apple_native_ci.py": "5e22cf81dc7fc04559fcf756fd33ff693145f597aedca90ecc4b44d118197c15",
+    ".github/workflows/apple-fast-lane.yml": "c0a0fad06044d0446a099db3bbc04d92169552858a03e38c2e4341a081fda712",
+    "README.md": "d8ac36d0b1b496f1d030ffdeab203a2b4c84c6863dd3baf00ff585f8a4a2e775"
+  }
+}
