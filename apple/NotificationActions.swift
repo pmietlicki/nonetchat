@@ -239,6 +239,70 @@ final class NotificationActions: NSObject, UNUserNotificationCenterDelegate {
     }
   }
   private func purge(_ args: [String: Any]) throws {
+    if let scope = args["scope"] as? String, ["endedContact", "endedGroup"].contains(scope) {
+      guard let target = args["target"] as? String, !target.isEmpty, target.utf8.count <= 256,
+            let reference = args["reference"] as? String, !reference.isEmpty, reference.utf8.count <= 256 else { throw Failure.invalid }
+      let kind = scope == "endedContact" ? "contact" : "group", account = owner
+      var tokens = Set<String>()
+      for file in try files() {
+        let token = file.deletingPathExtension().lastPathComponent
+        guard let row = try read(token), let ctx = row["context"] as? [String: Any],
+              ctx["owner"] as? String == account, ctx["scope"] as? String == kind,
+              ctx["target"] as? String == target, ctx["reference"] as? String == reference else { continue }
+        tokens.insert(token)
+        try FileManager.default.removeItem(at: file)
+      }
+      // A shared chat tag may now display a newer message. Match its opaque
+      // token instead, without invalidating unrelated private replies' epoch.
+      let retired = tokens
+      center.getDeliveredNotifications { values in
+        self.io.async {
+          guard self.owner == account else { return }
+          let ids = values.filter {
+            $0.request.content.userInfo["nonetOwner"] as? String == account &&
+              ($0.request.content.userInfo["nonetToken"] as? String).map(retired.contains) == true
+          }.map { $0.request.identifier }
+          self.center.removeDeliveredNotifications(withIdentifiers: ids)
+        }
+      }
+      center.getPendingNotificationRequests { values in
+        self.io.async {
+          guard self.owner == account else { return }
+          let ids = values.filter {
+            $0.content.userInfo["nonetOwner"] as? String == account &&
+              ($0.content.userInfo["nonetToken"] as? String).map(retired.contains) == true
+          }.map { $0.identifier }
+          self.center.removePendingNotificationRequests(withIdentifiers: ids)
+        }
+      }
+      return
+    }
+    if args["scope"] as? String == "public" {
+      guard let reference = args["reference"] as? String,
+            !reference.isEmpty, reference.utf8.count <= 128 else { throw Failure.invalid }
+      // A public resolution never revokes a private reply's epoch/capability.
+      // Remove both OS phases, including an add that has not been delivered yet.
+      let tag = "nonet:area:\(reference):\(generation)", account = owner
+      center.removeDeliveredNotifications(withIdentifiers: [tag])
+      center.removePendingNotificationRequests(withIdentifiers: [tag])
+      center.getDeliveredNotifications { values in
+        self.io.async {
+          guard self.owner == account else { return }
+          let ids = values.filter { notification in
+            let info = notification.request.content.userInfo
+            guard info["nonetOwner"] as? String == account,
+                  let payload = info["payload"] as? String,
+                  let data = payload.data(using: .utf8),
+                  let decoded = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            else { return false }
+            return decoded["action"] as? String == "OPEN_AREA_ACTIVITY" &&
+              decoded["postId"] as? String == reference
+          }.map { $0.request.identifier }
+          self.center.removeDeliveredNotifications(withIdentifiers: ids)
+        }
+      }
+      return
+    }
     epoch += 1
     if !["scope", "target", "reference"].contains(where: { args[$0] is String }) {
       generation = UUID().uuidString
