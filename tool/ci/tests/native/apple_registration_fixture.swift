@@ -213,7 +213,9 @@ private final class ProbeSegments: NSObject, AVAssetWriterDelegate {
     let writer = AVAssetWriter(contentType: UTType(AVFileType.mp4.rawValue)!)
     writer.outputFileTypeProfile = .mpeg4AppleHLS
     writer.initialSegmentStartTime = .zero
-    // Keep Apple's documented default segment interval, with no guessed timer.
+    // Apple's segmented profile rejects the invalid default on this SDK.
+    // Use its documented manual-flush mode for this one-buffer experiment.
+    writer.preferredOutputSegmentInterval = .indefinite
     writer.delegate = segments
     let input = AVAssetWriterInput(mediaType: .audio, outputSettings: settings)
     try require(writer.canApply(outputSettings: settings, forMediaType: .audio), "AAC settings refused")
@@ -248,6 +250,7 @@ private final class ProbeSegments: NSObject, AVAssetWriterDelegate {
     writer.startSession(atSourceTime: .zero)
     try require(input.isReadyForMoreMediaData, "Initial backpressure; no polling assumed")
     try require(input.append(sample), "PCM append: \(String(describing: writer.error))")
+    writer.flushSegment()
     input.markAsFinished()
     await writer.finishWriting()
     try require(writer.status == .completed, "Writer finish: \(String(describing: writer.error))")

@@ -383,7 +383,7 @@ def main():
             if (result.returncode != 0 or not any(line.startswith('AAC_SEGMENT_PROBE_OK:') for line in lines) or
                     any('APPLE_REGISTRATION_CASE_OK:' + case not in lines for case in cases) or
                     not any(re.fullmatch(r'APPLE_REGISTRATION_OK:[1-9][0-9]*', line) for line in lines)):
-                raise ValueError('Actual Apple registration runtime did not pass')
+                raise ValueError('Synthetic AAC experiment failed (registration checks also required)')
             print('Actual Flutter registration passed; no RTP, microphone, renderer or output tested')
             print('Native compilation passed; full NoNetChat app and radios are NOT validated')
 
