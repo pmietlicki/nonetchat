@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "sourceRevision": "c59d79ee0f70e1d4fa5b75c0d48a56c738fb6bb6",
+  "scope": "Apple native compilation only",
+  "sha256": {
+    "apple/AppleFastLanePlugin.swift": "dfe9942a2d558392769bdd72d98bfba00579da50e2706efc83ed25c16f1e139f",
+    "ios/Runner/AppleHotspotPlugin.swift": "a126ace03011fe230d393353bf8e9ed624d6afce38e4153916ec7beeb1620a8a",
+    "ios/Runner/AppleAwarePairing.swift": "a998f75169a1707c43300e0d0c4db9dfae8845d1ea8a9880b6383fa152a5ec4a",
+    "ios/Runner/AppDelegate.swift": "e89c3e8594372d3d1d4e5006374a56c0b3676eb8b490ae7eba63accea7e8af65",
+    "apple/NotificationActions.swift": "48628f886c2de79fe0ad07038dd3e769b2d47c3286310aea80ba8e0dab3d7ec5",
+    "apple/ArrivalNotifications.swift": "efaf42d5549776567118431ad744493c75a92e12094c21d18b01c106c7a6a8f3",
+    "apple/LocalMediaOwnership.swift": "afed06b3ecdd8783f7ec6e94cb5823e5607c69633f510b5263b1ef002bccfe34",
+    "apple/LocalMediaHost.swift": "856c713128583eab41afe88ee88462d7c54672f5ccb2ab6758f7f65285c5e4d2",
+    "apple/AppleLocalMediaPlugin.swift": "efcc6e52e509aa3e65246eefd5d0e0e9e0059bc9c2398b27dee16691ab7f769a",
+    "apple/IOSLocalMediaPresentation.swift": "bc012353a4323b3b1244105e8f995941e7ad71ae1e4242c4add3a5d7e577d24e",
+    "apple/MacLocalMediaPresentation.swift": "b159252c28b7e4ac33e769b31ff451d5a2c6ae9d811f0f8d166dbb755dc83e9c",
+    "macos/Runner/MainFlutterWindow.swift": "f7dbe4697d87259ec17bc87669fcf1dcb69fe1feb4ceed23d97802f9abed61e7",
+    "macos/Runner/AppDelegate.swift": "be2f587f693ff96b520e56ab49fc2822600733308fb500921e7cefa56e7cd986",
+    "tool/ci/tests/native/apple_local_media_ownership_test.swift": "81d39efdb38ebfc37175d73fbd1d5a8e5bc4b9a8d7c15331d0644b226f6897b7",
+    "tool/ci/tests/native/apple_local_media_host_test.swift": "edf522ef7cc01ed2bd1b20e1b528b68ee7b828d84d7b22ce09edb63c825b44f8",
+    "apple/APPLE-SAMPLE-LICENSE.txt": "d4750cf7c6bbdca0c73dea5157c03932cb095c0d66ab2745305fb184ba86a936",
+    "tool/ci/apple_native_ci.py": "369202588af07ee7eea320135113fdd9877ac1bd51e4bcfe494d2a99c30438a2",
+    ".github/workflows/apple-fast-lane.yml": "c0a0fad06044d0446a099db3bbc04d92169552858a03e38c2e4341a081fda712",
+    "README.md": "540bb89ce5901607b43133be0a75c387867c0ebaf727b536b96b58f290818dd4"
+  }
+}
