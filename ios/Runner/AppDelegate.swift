@@ -25,12 +25,15 @@ import MapKit
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    GeneratedPluginRegistrant.register(with: self)
+    let receivedAudio = AppleWebRTCRegistration.register(in: self) {
+      GeneratedPluginRegistrant.register(with: $0)
+    }
     if let registrar = registrar(forPlugin: "NoNetChatNotificationActions") {
       UNUserNotificationCenter.current().delegate = self
       notificationActions = NotificationActions(messenger: registrar.messenger())
       if let actions = notificationActions {
-        localMedia = AppleLocalMediaPlugin(messenger: registrar.messenger(), actions: actions)
+        localMedia = AppleLocalMediaPlugin(messenger: registrar.messenger(), actions: actions,
+          receivedAudio: receivedAudio)
       }
     }
     if let registrar = registrar(forPlugin: "NoNetChatStorage") {

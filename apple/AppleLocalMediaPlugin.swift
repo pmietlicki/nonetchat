@@ -13,20 +13,24 @@ import AppKit
 @MainActor final class AppleLocalMediaPlugin {
   private let channel: FlutterMethodChannel
   private let host: LocalMediaHost
+  private let receivedAudio: AppleRegisteredAudioSource?
   private var calls = 0
   private var detached = false
   var onDrained: (@MainActor () -> Void)?
 
   #if os(iOS)
   let presentation: IOSLocalMediaPresentation
-  init(messenger: FlutterBinaryMessenger, actions: NotificationActions) {
+  init(messenger: FlutterBinaryMessenger, actions: NotificationActions,
+       receivedAudio: AppleRegisteredAudioSource? = nil) {
+    self.receivedAudio = receivedAudio
     presentation = IOSLocalMediaPresentation(actions: actions)
     host = LocalMediaHost(platform: presentation, clock: Self.continuousMs)
     channel = FlutterMethodChannel(name: "fr.pmietlicki.nonetchat/local_media", binaryMessenger: messenger)
     connect()
   }
   #else
-  init(messenger: FlutterBinaryMessenger) {
+  init(messenger: FlutterBinaryMessenger, receivedAudio: AppleRegisteredAudioSource? = nil) {
+    self.receivedAudio = receivedAudio
     host = LocalMediaHost(platform: MacLocalMediaPresentation(), clock: Self.continuousMs)
     channel = FlutterMethodChannel(name: "fr.pmietlicki.nonetchat/local_media", binaryMessenger: messenger)
     connect()
@@ -130,6 +134,7 @@ import AppKit
   @discardableResult func detach() -> Bool {
     guard calls == 0, host.detach() else { return false }
     detached = true
+    receivedAudio?.retire()
     channel.setMethodCallHandler(nil)
     onDrained = nil
     return true

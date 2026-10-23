@@ -30,6 +30,8 @@ SWIFT = (
     'apple/RecordingBackupPolicy.swift',
     'apple/ReceivedAudioSources.swift',
     'apple/AppleReceivedAudioSources.swift',
+    'apple/RegisteredPluginSource.swift',
+    'apple/AppleWebRTCRegistration.swift',
     'apple/LocalMediaHost.swift',
     'apple/AppleLocalMediaPlugin.swift',
     'apple/IOSLocalMediaPresentation.swift',
@@ -41,7 +43,9 @@ NATIVE_TESTS = ('tool/ci/tests/native/apple_local_media_ownership_test.swift',
                 'tool/ci/tests/native/apple_local_media_host_test.swift',
                 'tool/ci/tests/native/apple_recording_backup_test.swift',
                 'tool/ci/tests/native/received_audio_sources_test.swift',
-                'tool/ci/tests/native/apple_received_audio_sdk_test.swift')
+                'tool/ci/tests/native/registered_plugin_source_test.swift',
+                'tool/ci/tests/native/apple_received_audio_sdk_test.swift',
+                'tool/ci/tests/native/apple_registration_fixture.swift')
 PUBLIC_INPUTS = SWIFT + NATIVE_TESTS + (
     'apple/APPLE-SAMPLE-LICENSE.txt',
     'tool/ci/apple_native_ci.py',
@@ -158,8 +162,10 @@ def prepare(root):
                 raise ValueError('Native source changed while preparing compilation')
             copies[destination.relative_to(target).as_posix()] = manifest['sha256'][source]
     common = tuple(Path(source).name for source in SWIFT if source.startswith('apple/'))
+    registration_test = NATIVE_TESTS[-1]
+    shutil.copyfile(root / registration_test, target / 'macos/Runner' / Path(registration_test).name)
     for platform, names in {'ios': common + ('AppleHotspotPlugin.swift', 'AppleAwarePairing.swift'),
-                            'macos': common}.items():
+                            'macos': common + (Path(registration_test).name,)}.items():
         wire_sources(target / platform, names)
         path = target / platform / 'Runner/Info.plist'
         info = plistlib.loads(path.read_bytes())
@@ -169,6 +175,25 @@ def prepare(root):
             info['NoNetPairedAwareEnabled'] = False
             info['WiFiAwareServices'] = {'_nonet-fast._tcp': {'Publishable': {}, 'Subscribable': {}}}
         path.write_bytes(plistlib.dumps(info))
+    # Both real app entrypoints above are compiled unchanged. Only this exact
+    # macOS registration block is replaced in the disposable runtime fixture.
+    window = target / 'macos/Runner/MainFlutterWindow.swift'
+    text = window.read_text()
+    registration = '''let receivedAudio = AppleWebRTCRegistration.register(in: flutterViewController) {
+      RegisterGeneratedPlugins(registry: $0)
+    }'''
+    if text.count(registration) != 1:
+        raise ValueError('Expected one generated macOS registration call')
+    text = text.replace(registration, '''let receivedAudio: AppleRegisteredAudioSource?
+    if ProcessInfo.processInfo.arguments.contains("--nonet-registration-fixture") {
+      receivedAudio = AppleRegistrationFixture.run(registry: flutterViewController)
+      DispatchQueue.main.async { NSApplication.shared.terminate(nil) }
+    } else {
+      receivedAudio = AppleWebRTCRegistration.register(in: flutterViewController) {
+        RegisterGeneratedPlugins(registry: $0)
+      }
+    }''')
+    window.write_text(text)
     # Generated public demo only: compile the exact dependency and deferred
     # permission settings, without copying any application Dart source.
     pubspec = target / 'pubspec.yaml'
@@ -214,6 +239,9 @@ def check_media_ownership(root):
           'ambiguous-or-non-audio', 'terminal-liveness', 'scope-retirement', 'two-engines',
           'reentrant-admission', 'reentrant-validation', 'lookup-and-owner-loss',
           'identifier-boundaries', 'retired-callbacks')),
+        ('registered-plugin', 'REGISTERED_PLUGIN', ('apple/RegisteredPluginSource.swift',),
+         ('one-instance', 'ambiguous-registration', 'publication-loss', 'registry-loss',
+          'sdk-loss', 'independent-retirement', 'retire-before-registration')),
     )
     for index, (name, marker, extra, cases) in enumerate(suites):
         executable = directory / name
@@ -336,6 +364,18 @@ def main():
             subprocess.run(['flutter', 'pub', 'get'], cwd=target, check=True)
             subprocess.run(['flutter', 'build', 'ios', '--release', '--no-codesign'], cwd=target, check=True)
             subprocess.run(['flutter', 'build', 'macos', '--release'], cwd=target, check=True)
+            binary = target / 'build/macos/Build/Products/Release/nonet_apple_validation.app/Contents/MacOS/nonet_apple_validation'
+            result = subprocess.run([str(binary), '--nonet-registration-fixture'],
+                                    capture_output=True, text=True, timeout=120)
+            print(result.stdout, end='')
+            print(result.stderr, end='')
+            cases = ('actual-generated-registration', 'public-forwarding', 'publication-retirement', 'explicit-retirement')
+            lines = result.stdout.splitlines()
+            if (result.returncode != 0 or
+                    any('APPLE_REGISTRATION_CASE_OK:' + case not in lines for case in cases) or
+                    not any(re.fullmatch(r'APPLE_REGISTRATION_OK:[1-9][0-9]*', line) for line in lines)):
+                raise ValueError('Actual Apple registration runtime did not pass')
+            print('Actual Flutter registration passed; no RTP, microphone, renderer or output tested')
             print('Native compilation passed; full NoNetChat app and radios are NOT validated')
 
 

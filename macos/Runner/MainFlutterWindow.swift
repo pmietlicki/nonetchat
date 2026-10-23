@@ -12,9 +12,12 @@ class MainFlutterWindow: NSWindow {
     self.contentViewController = flutterViewController
     self.setFrame(windowFrame, display: true)
 
-    RegisterGeneratedPlugins(registry: flutterViewController)
+    let receivedAudio = AppleWebRTCRegistration.register(in: flutterViewController) {
+      RegisterGeneratedPlugins(registry: $0)
+    }
     notificationActions = NotificationActions(messenger: flutterViewController.engine.binaryMessenger)
-    let media = AppleLocalMediaPlugin(messenger: flutterViewController.engine.binaryMessenger)
+    let media = AppleLocalMediaPlugin(messenger: flutterViewController.engine.binaryMessenger,
+      receivedAudio: receivedAudio)
     localMedia = media
     media.onDrained = { [weak self] in
       guard let self else { return }
