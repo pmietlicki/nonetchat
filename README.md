@@ -14,6 +14,9 @@ checks also link the exact WebRTC 150.7871.01 macOS framework (archive and image
 hashes pinned here) and check its runtime bundle. They use receive-only peers
 without SDP, a microphone, a renderer, a file or network traffic; this does not
 prove received audio or recording. No application pub cache is modified.
+An isolated AAC experiment also encodes synthetic silence to MP4 Data, writes
+only a disposable job-temporary file and decodes it locally. It is not a recorder
+integration or a live-media/device validation. No microphone or sound playback.
 Paired WiFiAware remains disabled pending device and provisioning validation.
 
 SOURCE.json records the source revision and each public file's SHA-256.

@@ -67,6 +67,9 @@ checks also link the exact WebRTC 150.7871.01 macOS framework (archive and image
 hashes pinned here) and check its runtime bundle. They use receive-only peers
 without SDP, a microphone, a renderer, a file or network traffic; this does not
 prove received audio or recording. No application pub cache is modified.
+An isolated AAC experiment also encodes synthetic silence to MP4 Data, writes
+only a disposable job-temporary file and decodes it locally. It is not a recorder
+integration or a live-media/device validation. No microphone or sound playback.
 Paired WiFiAware remains disabled pending device and provisioning validation.
 
 SOURCE.json records the source revision and each public file's SHA-256.
@@ -187,7 +190,12 @@ def prepare(root):
     text = text.replace(registration, '''let receivedAudio: AppleRegisteredAudioSource?
     if ProcessInfo.processInfo.arguments.contains("--nonet-registration-fixture") {
       receivedAudio = AppleRegistrationFixture.run(registry: flutterViewController)
-      DispatchQueue.main.async { NSApplication.shared.terminate(nil) }
+      DispatchQueue.main.async {
+        Task { @MainActor in
+          do { try await SegmentedWriterProbe.run(); NSApplication.shared.terminate(nil) }
+          catch { print("AAC_SEGMENT_PROBE_FAILED: \(error)"); exit(1) }
+        }
+      }
     } else {
       receivedAudio = AppleWebRTCRegistration.register(in: flutterViewController) {
         RegisterGeneratedPlugins(registry: $0)
@@ -372,7 +380,7 @@ def main():
             cases = ('actual-generated-registration', 'public-forwarding', 'publication-retirement',
                      'two-real-engines', 'explicit-retirement')
             lines = result.stdout.splitlines()
-            if (result.returncode != 0 or
+            if (result.returncode != 0 or not any(line.startswith('AAC_SEGMENT_PROBE_OK:') for line in lines) or
                     any('APPLE_REGISTRATION_CASE_OK:' + case not in lines for case in cases) or
                     not any(re.fullmatch(r'APPLE_REGISTRATION_OK:[1-9][0-9]*', line) for line in lines)):
                 raise ValueError('Actual Apple registration runtime did not pass')

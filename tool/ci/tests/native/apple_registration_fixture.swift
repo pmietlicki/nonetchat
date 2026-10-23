@@ -168,3 +168,114 @@ import flutter_webrtc
 }
 private final class LifecycleProbe: NSObject, FlutterAppLifecycleDelegate {}
 #endif
+
+#if os(macOS)
+import AVFoundation
+import AudioToolbox
+import CoreMedia
+import UniformTypeIdentifiers
+import CryptoKit
+
+private enum SegmentProbeError: Error { case rejected(String) }
+
+private final class ProbeSegments: NSObject, AVAssetWriterDelegate {
+  private let lock = NSLock()
+  private var chunks: [Data] = []
+  private var kinds: [AVAssetSegmentType] = []
+  private var count = 0
+  private var refused = false
+  func assetWriter(_ writer: AVAssetWriter, didOutputSegmentData data: Data,
+                   segmentType: AVAssetSegmentType, segmentReport: AVAssetSegmentReport?) {
+    lock.lock(); defer { lock.unlock() }
+    // Existing GStreamer/Windows byte bound, not a new product quota.
+    guard count <= 10 * 1024 * 1024 - data.count else { refused = true; return }
+    chunks.append(data.withUnsafeBytes { Data($0) })
+    count += data.count; kinds.append(segmentType)
+  }
+  func snapshot() throws -> Data {
+    lock.lock(); defer { lock.unlock() }
+    guard !refused, kinds.first == .initialization, kinds.contains(.separable), count > 0 else {
+      throw SegmentProbeError.rejected("No complete initialization/media sequence")
+    }
+    return chunks.reduce(into: Data(), { $0.append($1) })
+  }
+}
+
+@MainActor enum SegmentedWriterProbe {
+  static func require(_ value: Bool, _ context: String) throws {
+    if !value { throw SegmentProbeError.rejected(context) }
+  }
+
+  static func run() async throws {
+    let settings: [String: Any] = [AVFormatIDKey: kAudioFormatMPEG4AAC,
+      AVSampleRateKey: 16_000, AVNumberOfChannelsKey: 1, AVEncoderBitRateKey: 20_000]
+    let segments = ProbeSegments()
+    let writer = AVAssetWriter(contentType: UTType(AVFileType.mp4.rawValue)!)
+    writer.outputFileTypeProfile = .mpeg4AppleHLS
+    writer.initialSegmentStartTime = .zero
+    // Keep Apple's documented default segment interval, with no guessed timer.
+    writer.delegate = segments
+    let input = AVAssetWriterInput(mediaType: .audio, outputSettings: settings)
+    try require(writer.canApply(outputSettings: settings, forMediaType: .audio), "AAC settings refused")
+    try require(writer.canAdd(input), "Audio input refused")
+    writer.add(input)
+
+    let format = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16_000,
+                               channels: 1, interleaved: true)!
+    let pcm = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 16_000)!
+    pcm.frameLength = 16_000
+    let audio = pcm.mutableAudioBufferList.pointee.mBuffers
+    guard let bytes = audio.mData else { throw SegmentProbeError.rejected("No PCM bytes") }
+    memset(bytes, 0, Int(audio.mDataByteSize)) // Synthetic silence only.
+    var description: CMAudioFormatDescription?
+    try require(CMAudioFormatDescriptionCreate(allocator: kCFAllocatorDefault,
+      asbd: format.streamDescription, layoutSize: 0, layout: nil, magicCookieSize: 0,
+      magicCookie: nil, extensions: nil, formatDescriptionOut: &description) == noErr, "PCM description")
+    var timing = CMSampleTimingInfo(duration: CMTime(value: 1, timescale: 16_000),
+      presentationTimeStamp: .zero, decodeTimeStamp: .invalid)
+    var sample: CMSampleBuffer?
+    try require(CMSampleBufferCreate(allocator: kCFAllocatorDefault, dataBuffer: nil,
+      dataReady: false, makeDataReadyCallback: nil, refcon: nil, formatDescription: description,
+      sampleCount: 16_000, sampleTimingEntryCount: 1, sampleTimingArray: &timing,
+      sampleSizeEntryCount: 0, sampleSizeArray: nil, sampleBufferOut: &sample) == noErr, "PCM sample")
+    guard let sample else { throw SegmentProbeError.rejected("Missing sample") }
+    try require(CMSampleBufferSetDataBufferFromAudioBufferList(sample,
+      blockBufferAllocator: kCFAllocatorDefault, blockBufferMemoryAllocator: kCFAllocatorDefault,
+      flags: kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment,
+      bufferList: pcm.audioBufferList) == noErr, "Owned PCM copy")
+    try require(CMSampleBufferSetDataReady(sample) == noErr, "PCM readiness")
+    try require(writer.startWriting(), "Writer start: \(String(describing: writer.error))")
+    writer.startSession(atSourceTime: .zero)
+    try require(input.isReadyForMoreMediaData, "Initial backpressure; no polling assumed")
+    try require(input.append(sample), "PCM append: \(String(describing: writer.error))")
+    input.markAsFinished()
+    await writer.finishWriting()
+    try require(writer.status == .completed, "Writer finish: \(String(describing: writer.error))")
+    let data = try segments.snapshot()
+    writer.delegate = nil
+
+    let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: false)
+    defer { try? FileManager.default.removeItem(at: temporary) }
+    let url = temporary.appendingPathComponent("synthetic.m4a")
+    try data.write(to: url, options: .withoutOverwriting)
+    let asset = AVURLAsset(url: url)
+    let duration = try await asset.load(.duration)
+    let tracks = try await asset.loadTracks(withMediaType: .audio)
+    try require(tracks.count == 1 && duration.seconds.isFinite && duration.seconds > 0, "Audio metadata")
+    let reader = try AVAssetReader(asset: asset)
+    let output = AVAssetReaderTrackOutput(track: tracks[0], outputSettings: [
+      AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 16_000, AVNumberOfChannelsKey: 1,
+      AVLinearPCMBitDepthKey: 16, AVLinearPCMIsFloatKey: false, AVLinearPCMIsNonInterleaved: false])
+    try require(reader.canAdd(output), "Audio decode output")
+    reader.add(output)
+    try require(reader.startReading(), "Audio decode start")
+    var frames = 0
+    while let decoded = output.copyNextSampleBuffer() { frames += CMSampleBufferGetNumSamples(decoded) }
+    try require(reader.status == .completed && frames > 0, "Audio decode complete")
+    let sha = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    print("AAC_SEGMENT_PROBE_OK:bytes=\(data.count),duration=\(duration.seconds),frames=\(frames),sha256=\(sha)")
+    fflush(stdout)
+  }
+}
+#endif
