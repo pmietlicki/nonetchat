@@ -26,7 +26,9 @@ import flutter_webrtc
 
   func directory(current: @escaping () -> Bool) -> ReceivedAudioSources {
     AppleReceivedAudioSources.directory(current: { [weak self] in
-      self?.plugin.current != nil && current()
+      guard let self, self.plugin.current != nil else { return false }
+      let allowed = current()
+      return allowed && self.plugin.current != nil
     }, peer: { [weak self] id in
       self?.plugin.current?.peerConnections?[id] as? RTCPeerConnection
     })
@@ -80,11 +82,23 @@ import flutter_webrtc
 
 /// The SDK retains this registrar. It owns only Flutter's original registrar
 /// and holds our source weakly, so it cannot retain the app/window/registry.
-@MainActor private final class ObservedPluginRegistrar: NSObject, @preconcurrency FlutterPluginRegistrar {
+private final class ObservedPluginRegistrar: NSObject, FlutterPluginRegistrar {
   let base: FlutterPluginRegistrar
   weak var source: AppleRegisteredAudioSource?
   init(base: FlutterPluginRegistrar, source: AppleRegisteredAudioSource) {
     self.base = base; self.source = source
+  }
+
+  private func observe(_ delegate: FlutterPlugin) {
+    guard let sdk = delegate as? FlutterWebRTCPlugin else { return }
+    // Only the generated registration is an admission path. Forward ordinary
+    // registrar methods on their caller's thread, just as Flutter does; never
+    // make an asset/texture lookup acquire a new main-actor precondition.
+    if Thread.isMainThread {
+      MainActor.assumeIsolated { source?.observe(sdk) }
+    } else {
+      Task { @MainActor [weak source] in source?.retire() }
+    }
   }
 
   #if os(iOS)
@@ -92,7 +106,7 @@ import flutter_webrtc
   func textures() -> FlutterTextureRegistry { base.textures() }
   var viewController: UIViewController? { base.viewController }
   func addMethodCallDelegate(_ delegate: FlutterPlugin, channel: FlutterMethodChannel) {
-    if let sdk = delegate as? FlutterWebRTCPlugin { source?.observe(sdk) }
+    observe(delegate)
     base.addMethodCallDelegate(delegate, channel: channel)
   }
   func addApplicationDelegate(_ delegate: FlutterPlugin) { base.addApplicationDelegate(delegate) }
@@ -110,7 +124,7 @@ import flutter_webrtc
   var view: NSView? { base.view }
   var viewController: NSViewController? { base.viewController }
   func addMethodCallDelegate(_ delegate: FlutterPlugin, channel: FlutterMethodChannel) {
-    if let sdk = delegate as? FlutterWebRTCPlugin { source?.observe(sdk) }
+    observe(delegate)
     base.addMethodCallDelegate(delegate, channel: channel)
   }
   func addApplicationDelegate(_ delegate: FlutterAppLifecycleDelegate) { base.addApplicationDelegate(delegate) }

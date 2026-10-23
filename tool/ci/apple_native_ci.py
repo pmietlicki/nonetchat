@@ -369,7 +369,8 @@ def main():
                                     capture_output=True, text=True, timeout=120)
             print(result.stdout, end='')
             print(result.stderr, end='')
-            cases = ('actual-generated-registration', 'public-forwarding', 'publication-retirement', 'explicit-retirement')
+            cases = ('actual-generated-registration', 'public-forwarding', 'publication-retirement',
+                     'two-real-engines', 'explicit-retirement')
             lines = result.stdout.splitlines()
             if (result.returncode != 0 or
                     any('APPLE_REGISTRATION_CASE_OK:' + case not in lines for case in cases) or

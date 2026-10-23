@@ -51,6 +51,12 @@ import flutter_webrtc
       let channel = FlutterMethodChannel(name: "nonet.fixture.registration", binaryMessenger: rtc.messenger)
       rtc.addMethodCallDelegate(sdk, channel: channel)
       check(registrar.lastChannel === channel && registrar.delegate === sdk)
+      let foreign = ForeignPlugin()
+      rtc.addMethodCallDelegate(foreign, channel: channel)
+      check(registrar.lastChannel === channel && registrar.delegate === foreign)
+      let lifecycle = LifecycleProbe()
+      rtc.addApplicationDelegate(lifecycle)
+      check(registrar.applicationDelegate === lifecycle)
     }) else { preconditionFailure("Forwarding source unavailable") }
     check(forwarded.isRegistered)
     print("APPLE_REGISTRATION_CASE_OK:public-forwarding")
@@ -61,6 +67,30 @@ import flutter_webrtc
     check(!forwarded.isRegistered)
     check(source.isRegistered)
     print("APPLE_REGISTRATION_CASE_OK:publication-retirement")
+
+    var secondSource: AppleRegisteredAudioSource?
+    weak var secondEngine: FlutterEngine?
+    autoreleasepool {
+      let engine = FlutterEngine(name: "NoNetRegistrationSecond", project: nil,
+                                 allowHeadlessExecution: true)
+      secondEngine = engine
+      defer { engine.shutDownEngine() }
+      // Registration before run is sufficient: this second engine never runs
+      // Dart, negotiates SDP, constructs a media factory or requests a device.
+      let secondProbe = RegistryProbe(base: engine)
+      secondSource = AppleWebRTCRegistration.register(in: secondProbe) { proxy in
+        FlutterWebRTCPlugin.register(with: proxy.registrar(forPlugin: "FlutterWebRTCPlugin"))
+      }
+      guard let other = secondProbe.rtc?.delegate as? FlutterWebRTCPlugin else {
+        preconditionFailure("Second engine did not register its actual SDK")
+      }
+      check(other !== sdk)
+      check(other.peerConnectionFactory == nil)
+      check(secondSource?.isRegistered == true && source.isRegistered)
+    }
+    check(secondEngine == nil)
+    check(secondSource?.isRegistered == false && source.isRegistered)
+    print("APPLE_REGISTRATION_CASE_OK:two-real-engines")
 
     source.retire(); check(!source.isRegistered)
     check(sdk.peerConnectionFactory == nil)
@@ -108,6 +138,7 @@ import flutter_webrtc
   weak var delegate: FlutterPlugin?
   var delegateCalls = 0, factoryCalls = 0
   var lastChannel: FlutterMethodChannel?
+  weak var applicationDelegate: FlutterAppLifecycleDelegate?
   init(base: FlutterPluginRegistrar) { self.base = base }
   var messenger: FlutterBinaryMessenger { base.messenger }
   var textures: FlutterTextureRegistry { base.textures }
@@ -117,7 +148,10 @@ import flutter_webrtc
     self.delegate = delegate; lastChannel = channel; delegateCalls += 1
     base.addMethodCallDelegate(delegate, channel: channel)
   }
-  func addApplicationDelegate(_ delegate: FlutterAppLifecycleDelegate) { base.addApplicationDelegate(delegate) }
+  func addApplicationDelegate(_ delegate: FlutterAppLifecycleDelegate) {
+    applicationDelegate = delegate
+    base.addApplicationDelegate(delegate)
+  }
   func register(_ factory: FlutterPlatformViewFactory, withId id: String) {
     factoryCalls += 1; base.register(factory, withId: id)
   }
@@ -127,4 +161,10 @@ import flutter_webrtc
     base.lookupKey(forAsset: asset, fromPackage: package)
   }
 }
+
+@MainActor private final class ForeignPlugin: NSObject, @preconcurrency FlutterPlugin {
+  static func register(with registrar: FlutterPluginRegistrar) {}
+  func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) { result(FlutterMethodNotImplemented) }
+}
+private final class LifecycleProbe: NSObject, FlutterAppLifecycleDelegate {}
 #endif
