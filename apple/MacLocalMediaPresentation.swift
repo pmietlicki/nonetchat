@@ -66,6 +66,7 @@ import AppKit
   }
 
   func remove(_ key: LocalMediaOwnership.Key) async -> Bool {
+    if self.key == nil && item == nil { return true }
     guard self.key === key else { return false }
     guard let item else { return false }
     withdrawing = true
@@ -74,6 +75,16 @@ import AppKit
     observation = nil
     NSStatusBar.system.removeStatusItem(item)
     self.item = nil; self.key = nil; stop = nil; withdrawing = false
+    return true
+  }
+
+  func withdrawRecording(_ view: LocalMediaView) async -> Bool {
+    if await update(view) { return true }
+    // OUTPUT is already closed. A lost status item cannot be republished to
+    // resume capture; remove its remaining purpose and retire the session.
+    let stopping = stop
+    guard await remove(view.key) else { return false }
+    stopping?()
     return true
   }
 }

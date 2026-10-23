@@ -89,6 +89,7 @@ import UserNotifications
   }
 
   func remove(_ key: LocalMediaOwnership.Key) async -> Bool {
+    if self.key == nil && identifier == nil { return true }
     guard self.key === key, let identifier else { return false }
     center.removePendingNotificationRequests(withIdentifiers: [identifier])
     center.removeDeliveredNotifications(withIdentifiers: [identifier])
@@ -104,6 +105,17 @@ import UserNotifications
       do { try await Task.sleep(nanoseconds: Self.pollNanoseconds) } catch { return false }
     }
     return false
+  }
+
+  func withdrawRecording(_ view: LocalMediaView) async -> Bool {
+    if await post(view) { return true }
+    // Notification permission can be revoked during recording. Once OUTPUT
+    // has really closed, confirmed removal is a valid withdrawal too; never
+    // require the user to restore permission merely to stop the old purpose.
+    let stopping = stop
+    guard await remove(view.key) else { return false }
+    stopping?()
+    return true
   }
 
   func receive(_ response: UNNotificationResponse) {

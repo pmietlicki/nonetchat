@@ -4,8 +4,13 @@
   var foreground: Bool { get }
   func present(_ view: LocalMediaView, stop: @escaping @MainActor () -> Void) async -> Bool
   func update(_ view: LocalMediaView) async -> Bool
+  func withdrawRecording(_ view: LocalMediaView) async -> Bool
   func exists(_ key: LocalMediaOwnership.Key) async -> Bool
   func remove(_ key: LocalMediaOwnership.Key) async -> Bool
+}
+
+extension LocalMediaPresentation {
+  func withdrawRecording(_ view: LocalMediaView) async -> Bool { await update(view) }
 }
 
 @MainActor struct LocalMediaView {
@@ -121,7 +126,15 @@
     return owner.activate(key)
   }
 
-  func state(_ key: Key) async -> Bool { await confirmed(key) }
+  func state(_ key: Key) async -> Bool {
+    // The existing five-second health tick may overlap a slow OS update. It
+    // observes the already-confirmed purpose; it grants no capture/OUTPUT or
+    // new recording acknowledgement. The update still checks its own readback
+    // and retires the purpose on failure. Do not treat local UI work as loss.
+    if pending != nil && releasing == nil && !detached &&
+        owner.snapshot?.presented == true && owner.current(key) { return true }
+    return await confirmed(key)
+  }
 
   func showRecording(_ key: Key, nonce: String, body: String) async -> Bool {
     guard Self.validLabel(body), await confirmed(key), owner.reserveRecording(key, nonce: nonce) else {
@@ -143,7 +156,7 @@
   func hideRecording(_ key: Key, nonce: String) async -> Bool {
     guard !detached, owner.ownsRecording(key, nonce: nonce),
           let view = render(key, recording: false) else { return false }
-    let hidden = await operation { [self] in await platform.update(view) }
+    let hidden = await operation { [self] in await platform.withdrawRecording(view) }
     guard hidden, !detached, owner.confirmRecordingReleased(key, nonce: nonce) else { return false }
     recordingBody = nil
     return true

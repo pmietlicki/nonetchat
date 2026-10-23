@@ -189,7 +189,8 @@ def check_media_ownership(root):
          'scopes', 'exact-account', 'reentrant-reads', 'recording-visibility')),
         ('host', 'LOCAL_MEDIA_HOST', ('apple/LocalMediaHost.swift',),
          ('admission', 'roles', 'late-presentation', 'failed-presentation', 'recording',
-          'late-recording', 'scopes', 'late-state-removal')),
+          'late-recording', 'lost-recording-indication', 'scopes', 'late-state-removal',
+          'maintenance-during-update')),
     )
     for index, (name, marker, extra, cases) in enumerate(suites):
         executable = directory / name

@@ -30,6 +30,7 @@ import Foundation
   var updateGate: Gate?
   var existsGate: Gate?
   var removeGate: Gate?
+  var withdrawalStopsPurpose = false
   var views: [LocalMediaView] = []
   var stops: [@MainActor () -> Void] = []
   var removed: [LocalMediaOwnership.Key] = []
@@ -42,6 +43,14 @@ import Foundation
     views.append(view)
     if let updateGate { return await updateGate.block() }
     return updateResult
+  }
+  func withdrawRecording(_ view: LocalMediaView) async -> Bool {
+    if withdrawalStopsPurpose {
+      let removed = await remove(view.key)
+      if removed { stops.last?() }
+      return removed
+    }
+    return await update(view)
   }
   func exists(_ key: LocalMediaOwnership.Key) async -> Bool {
     if let existsGate { return await existsGate.block() }
@@ -197,6 +206,36 @@ private enum Failure: Error { case failed(String) }
     try check(await f.host.release(owner), "late update cleaned up")
   }
 
+  @MainActor static func lostRecordingIndication() async throws {
+    let f = HostFixture(); let owner = try await active(f)
+    try check(await f.host.showRecording(owner, nonce: nonce, body: "Enregistrement"), "recording indication")
+    f.view.withdrawalStopsPurpose = true
+    f.view.removeResult = false
+    try check(!(await f.host.hideRecording(owner, nonce: nonce)), "failed OS removal retains recording nonce")
+    try check(f.host.snapshot?.recording == nonce, "uncertain withdrawal stays owned")
+    f.view.removeResult = true
+    try check(await f.host.hideRecording(owner, nonce: nonce), "confirmed native removal withdraws closed OUTPUT")
+    try check(f.stops.count == 1 && f.host.snapshot?.retired == true, "lost disclosure retires purpose")
+    try check(!(await f.host.capture(owner)), "cleared disclosure never reopens capture")
+    try check(await f.host.release(owner), "retired purpose can finish cleanup without restoring permission")
+  }
+
+  @MainActor static func maintenanceDuringUpdate() async throws {
+    let f = HostFixture(); let owner = try await active(f)
+    let gate = Gate(); f.view.updateGate = gate
+    let updating = Task { @MainActor in
+      await f.host.showRecording(owner, nonce: nonce, body: "Enregistrement")
+    }
+    await gate.ready()
+    try check(await f.host.state(owner), "health maintenance must not cancel an outstanding native UI update")
+    try check(f.stops.isEmpty, "native update and health maintenance do not revoke each other")
+    gate.finish(true)
+    try check(await updating.value, "original OS recording confirmation remains valid")
+    f.view.updateGate = nil
+    try check(await f.host.hideRecording(owner, nonce: nonce), "confirmed OUTPUT withdrawal")
+    try check(await f.host.release(owner), "maintenance case cleans up")
+  }
+
   @MainActor static func scopes() async throws {
     let a = HostFixture(), b = HostFixture()
     let old = try await active(a), other = try await active(b)
@@ -243,8 +282,8 @@ private enum Failure: Error { case failed(String) }
       for (name, body) in [
         ("admission", admission), ("roles", roles), ("late-presentation", latePresentation),
         ("failed-presentation", failedPresentation), ("recording", recording),
-        ("late-recording", lateRecording), ("scopes", scopes),
-        ("late-state-removal", lateStateAndRemoval)
+        ("late-recording", lateRecording), ("lost-recording-indication", lostRecordingIndication), ("scopes", scopes),
+        ("late-state-removal", lateStateAndRemoval), ("maintenance-during-update", maintenanceDuringUpdate)
       ] {
         let before = checks
         try await body(); try check(checks > before, "case executes checks")
