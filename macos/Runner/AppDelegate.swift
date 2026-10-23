@@ -8,7 +8,9 @@ class AppDelegate: FlutterAppDelegate {
       return super.applicationShouldTerminate(sender)
     }
     if window.prepareToTerminate({ [weak self] in self?.replyAfterMediaDrained(sender) }) {
-      return super.applicationShouldTerminate(sender)
+      let reply = super.applicationShouldTerminate(sender)
+      if reply == .terminateCancel { window.cancelTermination() }
+      return reply
     }
     return .terminateLater
   }
@@ -17,6 +19,9 @@ class AppDelegate: FlutterAppDelegate {
     // Preserve Flutter's existing cancelable Dart exit handshake. Its async
     // cancellation/retry is distinct from our native media drain.
     let reply = super.applicationShouldTerminate(sender)
+    if reply == .terminateCancel {
+      sender.windows.compactMap { $0 as? MainFlutterWindow }.first?.cancelTermination()
+    }
     if reply != .terminateLater {
       sender.reply(toApplicationShouldTerminate: reply == .terminateNow)
     }

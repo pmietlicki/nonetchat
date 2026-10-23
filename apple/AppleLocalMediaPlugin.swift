@@ -115,6 +115,7 @@ import AppKit
   }
 
   func requestClose() -> Bool { host.requestClose() && calls == 0 }
+  func cancelClose() -> Bool { !detached && calls == 0 && host.cancelClose() }
 
   @discardableResult func detach() -> Bool {
     guard calls == 0, host.detach() else { return false }

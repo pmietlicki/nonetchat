@@ -176,6 +176,14 @@ extension LocalMediaPresentation {
     return isDrained
   }
 
+  // A canceled Flutter/AppKit quit may admit a fresh local purpose only after
+  // the old one really drained. This never clears retirement on an old key.
+  func cancelClose() -> Bool {
+    guard !detached, isDrained else { return false }
+    closing = false
+    return true
+  }
+
   func release(_ key: Key) async -> Bool {
     guard !detached, owner.matches(key) else { return false }
     if let releasing { return await releasing.value }

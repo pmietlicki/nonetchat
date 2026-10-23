@@ -236,6 +236,20 @@ private enum Failure: Error { case failed(String) }
     try check(await f.host.release(owner), "maintenance case cleans up")
   }
 
+  @MainActor static func cancelledQuit() async throws {
+    let f = HostFixture(); let old = try await active(f)
+    try check(!f.host.requestClose(), "quit asks for the old native media drain")
+    try check(!f.host.cancelClose(), "cancel cannot revive an undrained owner")
+    try check(await f.host.release(old), "old media really closes before cancelable Flutter exit")
+    try check(f.host.cancelClose(), "canceled Flutter exit keeps the engine usable")
+    let next = try await active(f)
+    try check(next !== old, "new local gesture gets a new immutable purpose")
+    f.view.stops.first?()
+    try check(await f.host.state(next), "old native close cannot stop the new gesture")
+    try check(await f.host.release(next), "new purpose closes normally")
+    try check(f.host.detach() && !f.host.cancelClose(), "actual engine teardown cannot be canceled")
+  }
+
   @MainActor static func scopes() async throws {
     let a = HostFixture(), b = HostFixture()
     let old = try await active(a), other = try await active(b)
@@ -283,7 +297,8 @@ private enum Failure: Error { case failed(String) }
         ("admission", admission), ("roles", roles), ("late-presentation", latePresentation),
         ("failed-presentation", failedPresentation), ("recording", recording),
         ("late-recording", lateRecording), ("lost-recording-indication", lostRecordingIndication), ("scopes", scopes),
-        ("late-state-removal", lateStateAndRemoval), ("maintenance-during-update", maintenanceDuringUpdate)
+        ("late-state-removal", lateStateAndRemoval), ("maintenance-during-update", maintenanceDuringUpdate),
+        ("cancelled-quit", cancelledQuit)
       ] {
         let before = checks
         try await body(); try check(checks > before, "case executes checks")

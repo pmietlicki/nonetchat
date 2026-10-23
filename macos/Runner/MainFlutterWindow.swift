@@ -20,11 +20,12 @@ class MainFlutterWindow: NSWindow {
       guard let self else { return }
       if let quit = self.pendingQuit {
         self.pendingQuit = nil
-        _ = self.localMedia?.detach()
         quit()
       } else if self.closingWindow { self.close() }
     }
     AppleFastLanePlugin.register(with: flutterViewController.registrar(forPlugin: "NoNetChatAppleFastLane"))
+    NotificationCenter.default.addObserver(self, selector: #selector(willTerminate(_:)),
+      name: NSApplication.willTerminateNotification, object: nil)
 
     super.awakeFromNib()
   }
@@ -33,6 +34,7 @@ class MainFlutterWindow: NSWindow {
     closingWindow = true
     guard localMedia?.requestClose() != false else { return }
     guard localMedia?.detach() != false else { return }
+    NotificationCenter.default.removeObserver(self, name: NSApplication.willTerminateNotification, object: nil)
     super.close()
   }
 
@@ -40,10 +42,21 @@ class MainFlutterWindow: NSWindow {
   // indication have drained. An unconfirmed release deliberately keeps it open.
   func prepareToTerminate(_ completion: @escaping () -> Void) -> Bool {
     pendingQuit = completion
-    if localMedia?.requestClose() != false, localMedia?.detach() != false {
+    if localMedia?.requestClose() != false {
       pendingQuit = nil
       return true
     }
     return false
+  }
+
+  func cancelTermination() {
+    pendingQuit = nil
+    if closingWindow { close() }
+    else { _ = localMedia?.cancelClose() }
+  }
+
+  @objc private func willTerminate(_ notification: Notification) {
+    _ = localMedia?.detach()
+    NotificationCenter.default.removeObserver(self, name: NSApplication.willTerminateNotification, object: nil)
   }
 }
