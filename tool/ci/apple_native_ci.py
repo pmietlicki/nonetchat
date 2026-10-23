@@ -7,6 +7,11 @@ only NoNetChat code is the listed Swift files. This is NOT a NoNetChat app build
 import argparse
 import hashlib
 import json
+import platform
+import posixpath
+import stat
+import urllib.request
+import zipfile
 from pathlib import Path
 import plistlib
 import re
@@ -23,6 +28,8 @@ SWIFT = (
     'apple/ArrivalNotifications.swift',
     'apple/LocalMediaOwnership.swift',
     'apple/RecordingBackupPolicy.swift',
+    'apple/ReceivedAudioSources.swift',
+    'apple/AppleReceivedAudioSources.swift',
     'apple/LocalMediaHost.swift',
     'apple/AppleLocalMediaPlugin.swift',
     'apple/IOSLocalMediaPresentation.swift',
@@ -32,7 +39,9 @@ SWIFT = (
 )
 NATIVE_TESTS = ('tool/ci/tests/native/apple_local_media_ownership_test.swift',
                 'tool/ci/tests/native/apple_local_media_host_test.swift',
-                'tool/ci/tests/native/apple_recording_backup_test.swift')
+                'tool/ci/tests/native/apple_recording_backup_test.swift',
+                'tool/ci/tests/native/received_audio_sources_test.swift',
+                'tool/ci/tests/native/apple_received_audio_sdk_test.swift')
 PUBLIC_INPUTS = SWIFT + NATIVE_TESTS + (
     'apple/APPLE-SAMPLE-LICENSE.txt',
     'tool/ci/apple_native_ci.py',
@@ -49,6 +58,11 @@ sources against iOS 26+ and macOS SDKs, including
 the gated WiFiAware code. It generates a trivial Flutter demo, NOT NoNetChat.
 There is no app publication and no Windows build. No secrets are required.
 These builds do not validate radios, provisioning, the full NoNetChat app or UX.
+The disposable demo resolves flutter_webrtc 1.6.2+hotfix.4. Native source-identity
+checks also link the exact WebRTC 150.7871.01 macOS framework (archive and image
+hashes pinned here) and check its runtime bundle. They use receive-only peers
+without SDP, a microphone, a renderer, a file or network traffic; this does not
+prove received audio or recording. No application pub cache is modified.
 Paired WiFiAware remains disabled pending device and provisioning validation.
 
 SOURCE.json records the source revision and each public file's SHA-256.
@@ -159,7 +173,7 @@ def prepare(root):
     # permission settings, without copying any application Dart source.
     pubspec = target / 'pubspec.yaml'
     text = pubspec.read_text(encoding='utf-8')
-    text = text.replace('dependencies:\n', 'dependencies:\n  flutter_local_notifications: 22.3.2\n', 1)
+    text = text.replace('dependencies:\n', 'dependencies:\n  flutter_local_notifications: 22.3.2\n  flutter_webrtc: 1.6.2+hotfix.4\n', 1)
     pubspec.write_text(text, encoding='utf-8')
     (target / 'lib/main.dart').write_text("""import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -195,6 +209,11 @@ def check_media_ownership(root):
           'maintenance-during-update', 'cancelled-quit', 'stop-retry')),
         ('backup', 'RECORDING_BACKUP', ('apple/RecordingBackupPolicy.swift',),
          ('scope', 'levels', 'failures', 'links', 'replacement', 'native-policy')),
+        ('received-audio', 'RECEIVED_AUDIO', ('apple/ReceivedAudioSources.swift',),
+         ('fresh-wrappers', 'peer-replacement', 'receiver-replacement', 'track-replacement',
+          'ambiguous-or-non-audio', 'terminal-liveness', 'scope-retirement', 'two-engines',
+          'reentrant-admission', 'reentrant-validation', 'lookup-and-owner-loss',
+          'identifier-boundaries', 'retired-callbacks')),
     )
     for index, (name, marker, extra, cases) in enumerate(suites):
         executable = directory / name
@@ -208,6 +227,88 @@ def check_media_ownership(root):
                 or not re.fullmatch(marker + r'_OK:[1-9][0-9]*', lines[-1])):
             raise ValueError('Native media tests did not execute every required case')
         print(result.stdout, end='')
+
+
+
+# Same byte-exact artifact as flutter_webrtc 1.6.2+hotfix.4's Apple binary target.
+APPLE_RTC_SDK_URL = 'https://github.com/webrtc-sdk/Specs/releases/download/150.7871.01/WebRTC.xcframework.zip'
+APPLE_RTC_SDK_SHA256 = '03815cdf2f6a0ed328c94d74cce8fd1b8d2b6e95e2b37eab66795012fcecfdfa'
+APPLE_RTC_SDK_BYTES = 69079305
+APPLE_RTC_MAC_BINARY_SHA256 = 'c33685c8d823266071a4001def1cfe38a69ce9189e78625c337525220f70a47f'
+
+
+def verify_sdk_members(archive):
+    """Only the reviewed framework root and in-root relative links may extract."""
+    from pathlib import PurePosixPath
+    with zipfile.ZipFile(archive) as zipped:
+        names = set()
+        for member in zipped.infolist():
+            path = PurePosixPath(member.filename)
+            if (not path.parts or path.parts[0] != 'WebRTC.xcframework' or
+                    path.is_absolute() or '..' in path.parts or '\\' in member.filename or
+                    '\x00' in member.filename or member.filename in names):
+                raise ValueError('Unexpected SDK archive path')
+            names.add(member.filename)
+            mode = member.external_attr >> 16
+            if stat.S_ISLNK(mode):
+                target = zipped.read(member).decode('utf-8')
+                resolved = posixpath.normpath(str(path.parent / target))
+                if (not target or '\x00' in target or '\\' in target or target.startswith('/') or
+                        not resolved.startswith('WebRTC.xcframework/')):
+                    raise ValueError('External SDK archive link')
+            elif mode and not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
+                raise ValueError('Unexpected SDK archive entry')
+
+
+def check_received_audio_sdk(root):
+    """Execute source identity against the actual SDK; never start real media."""
+    verify_snapshot(root)
+    directory = root / 'build/native-received-sdk'
+    directory.mkdir(parents=True, exist_ok=False)
+    archive = directory / 'WebRTC.xcframework.zip'
+    sha = hashlib.sha256()
+    count = 0
+    with urllib.request.urlopen(APPLE_RTC_SDK_URL, timeout=60) as source, archive.open('xb') as output:
+        while block := source.read(64 * 1024):
+            count += len(block)
+            if count > APPLE_RTC_SDK_BYTES:
+                raise ValueError('Unexpected SDK artifact size')
+            output.write(block)
+            sha.update(block)
+    if count != APPLE_RTC_SDK_BYTES or sha.hexdigest() != APPLE_RTC_SDK_SHA256:
+        raise ValueError('SDK artifact does not match the pinned binary target')
+    verify_sdk_members(archive)
+    extracted = directory / 'sdk'
+    extracted.mkdir()
+    # macOS ditto preserves the reviewed framework's internal version links.
+    subprocess.run(['ditto', '-x', '-k', str(archive), str(extracted)], check=True)
+    frameworks = extracted / 'WebRTC.xcframework/macos-arm64_x86_64'
+    framework = frameworks / 'WebRTC.framework'
+    if not framework.is_dir():
+        raise ValueError('Pinned macOS framework absent')
+    binary = framework / 'Versions/A/WebRTC'
+    if digest(binary) != APPLE_RTC_MAC_BINARY_SHA256:
+        raise ValueError('Extracted macOS SDK image changed')
+    executable = directory / 'received-sdk'
+    sources = ('apple/ReceivedAudioSources.swift', 'apple/AppleReceivedAudioSources.swift',
+               'tool/ci/tests/native/apple_received_audio_sdk_test.swift')
+    architecture = platform.machine()
+    if architecture not in ('arm64', 'x86_64'):
+        raise ValueError('Unsupported native SDK fixture architecture')
+    subprocess.run(['swiftc', '-swift-version', '5', '-warnings-as-errors',
+                    '-strict-concurrency=complete', '-parse-as-library',
+                    '-target', architecture + '-apple-macos12.0',
+                    *(str(root / name) for name in sources), '-F', str(frameworks),
+                    '-framework', 'WebRTC', '-Xlinker', '-rpath', '-Xlinker', str(frameworks),
+                    '-o', str(executable)], check=True)
+    result = subprocess.run([str(executable), str(binary)], capture_output=True, text=True, check=True, timeout=180)
+    cases = ('pinned-runtime', 'fresh-native-wrappers', 'original-track-retained', 'peer-scope', 'retirement')
+    lines = result.stdout.splitlines()
+    if (lines[:-1] != ['APPLE_RECEIVED_SDK_CASE_OK:' + case for case in cases] or
+            not re.fullmatch(r'APPLE_RECEIVED_SDK_OK:[1-9][0-9]*', lines[-1])):
+        raise ValueError('Pinned SDK source identity checks did not execute')
+    print(result.stdout, end='')
+    print('Pinned SDK identity passed; RTP, microphone, renderer and output NOT tested')
 
 
 def main():
@@ -229,6 +330,7 @@ def main():
     else:
         if args.command == 'build':
             check_media_ownership(ROOT)
+            check_received_audio_sdk(ROOT)
         target = prepare(ROOT)
         if args.command == 'build':
             subprocess.run(['flutter', 'pub', 'get'], cwd=target, check=True)
