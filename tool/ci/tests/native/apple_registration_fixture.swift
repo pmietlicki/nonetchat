@@ -202,11 +202,13 @@ private final class ProbeSegments: NSObject, AVAssetWriterDelegate {
 }
 
 @MainActor enum SegmentedWriterProbe {
+  static func stage(_ value: String) { print("AAC_STAGE:\(value)"); fflush(stdout) }
   static func require(_ value: Bool, _ context: String) throws {
     if !value { throw SegmentProbeError.rejected(context) }
   }
 
   static func run() async throws {
+    stage("begin")
     let settings: [String: Any] = [AVFormatIDKey: kAudioFormatMPEG4AAC,
       AVSampleRateKey: 16_000, AVNumberOfChannelsKey: 1, AVEncoderBitRateKey: 20_000]
     let segments = ProbeSegments()
@@ -246,14 +248,20 @@ private final class ProbeSegments: NSObject, AVAssetWriterDelegate {
       flags: kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment,
       bufferList: pcm.audioBufferList) == noErr, "Owned PCM copy")
     try require(CMSampleBufferSetDataReady(sample) == noErr, "PCM readiness")
+    stage("start-writing")
     try require(writer.startWriting(), "Writer start: \(String(describing: writer.error))")
     writer.startSession(atSourceTime: .zero)
+    stage("session-started")
     try require(input.isReadyForMoreMediaData, "Initial backpressure; no polling assumed")
     try require(input.append(sample), "PCM append: \(String(describing: writer.error))")
+    stage("appended")
     input.markAsFinished()
+    stage("finish-writing")
     await writer.finishWriting()
+    stage("writer-finished")
     try require(writer.status == .completed, "Writer finish: \(String(describing: writer.error))")
     let data = try segments.snapshot()
+    stage("segments-joined:\(data.count)")
     writer.delegate = nil
 
     let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -262,8 +270,12 @@ private final class ProbeSegments: NSObject, AVAssetWriterDelegate {
     let url = temporary.appendingPathComponent("synthetic.m4a")
     try data.write(to: url, options: .withoutOverwriting)
     let asset = AVURLAsset(url: url)
+    stage("load-duration")
     let duration = try await asset.load(.duration)
+    stage("duration-loaded:\(duration.seconds)")
+    stage("load-tracks")
     let tracks = try await asset.loadTracks(withMediaType: .audio)
+    stage("tracks-loaded")
     try require(tracks.count == 1 && duration.seconds.isFinite && duration.seconds > 0, "Audio metadata")
     let reader = try AVAssetReader(asset: asset)
     let output = AVAssetReaderTrackOutput(track: tracks[0], outputSettings: [
@@ -272,8 +284,10 @@ private final class ProbeSegments: NSObject, AVAssetWriterDelegate {
     try require(reader.canAdd(output), "Audio decode output")
     reader.add(output)
     try require(reader.startReading(), "Audio decode start")
+    stage("decode")
     var frames = 0
     while let decoded = output.copyNextSampleBuffer() { frames += CMSampleBufferGetNumSamples(decoded) }
+    stage("decoded:\(frames)")
     try require(reader.status == .completed && frames > 0, "Audio decode complete")
     let sha = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     print("AAC_SEGMENT_PROBE_OK:bytes=\(data.count),duration=\(duration.seconds),frames=\(frames),sha256=\(sha)")

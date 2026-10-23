@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "sourceRevision": "f4b2e854312f906e1f7e3f0cbf153e2bf07e9cd6",
+  "sourceRevision": "627da2a5536b96939b5b3c024fe61826511bf609",
   "scope": "Apple native compilation only",
   "sha256": {
     "apple/AppleFastLanePlugin.swift": "dfe9942a2d558392769bdd72d98bfba00579da50e2706efc83ed25c16f1e139f",
@@ -11,6 +11,7 @@
     "apple/ArrivalNotifications.swift": "efaf42d5549776567118431ad744493c75a92e12094c21d18b01c106c7a6a8f3",
     "apple/LocalMediaOwnership.swift": "afed06b3ecdd8783f7ec6e94cb5823e5607c69633f510b5263b1ef002bccfe34",
     "apple/RecordingBackupPolicy.swift": "c79359cc6ca49e1d44a3b973826a7b3f016777bf3eb37d78168b67be47aef7a9",
+    "apple/RecordingOutputFile.swift": "f51df08bafc1faa5675d413bbe4f56c49aeac51a52b1924ca59b88cbc59a9cfc",
     "apple/ReceivedAudioSources.swift": "82ce42904afaf8f71c70c381cd591c8d9410523feeeff1715fd9d28332de73df",
     "apple/AppleReceivedAudioSources.swift": "f16e6bcef3eb49df1e5c90e43230062786fb4cec454a450ece074991efdf4bd5",
     "apple/RegisteredPluginSource.swift": "d6a6060a21b058b8610739c9994fb58d40d82e37b05a7e89dad720e51522c5e9",
@@ -26,11 +27,12 @@
     "tool/ci/tests/native/apple_recording_backup_test.swift": "50ca4fce5bc14f119089ce0fc24b7de71e77ba8e56dc9423f147d2a4c9b6cf7e",
     "tool/ci/tests/native/received_audio_sources_test.swift": "959701c34b1ce82c8b5ef5521482a9aff2d28a77b67e365feff314afcf73dd3f",
     "tool/ci/tests/native/registered_plugin_source_test.swift": "2b08211fb442dffcb01d62fc4eac2e484c21e0cf1b79d40037315a2cce82c0c6",
+    "tool/ci/tests/native/recording_output_file_test.swift": "ee5560aa3bb06cedd741fa14845f477b8df32c3d3cedd616819ee496ebde57fa",
     "tool/ci/tests/native/apple_received_audio_sdk_test.swift": "e255240eabcd00da7e0b4ea3fc7c402f1e636eb3581b627c348bbbeafc53caa0",
-    "tool/ci/tests/native/apple_registration_fixture.swift": "70164f221cea5f0f87f04af704a53e5d0cceb28b452a6c531bf53c4deb17455b",
+    "tool/ci/tests/native/apple_registration_fixture.swift": "7d8045f4010535ecab8907ab6d89d261d5f80015b8671c866c5a765a1dd2e922",
     "apple/APPLE-SAMPLE-LICENSE.txt": "d4750cf7c6bbdca0c73dea5157c03932cb095c0d66ab2745305fb184ba86a936",
-    "tool/ci/apple_native_ci.py": "f8e38b803f89d31ad35f0d8f682ec02e6dc9129399aff6069253a4bb81c8bdb5",
+    "tool/ci/apple_native_ci.py": "aa8bfd24c10cf5c0aaaf95593609afb6f6a8ddbf736d22d3138ba1a74ae59309",
     ".github/workflows/apple-fast-lane.yml": "c0a0fad06044d0446a099db3bbc04d92169552858a03e38c2e4341a081fda712",
-    "README.md": "0d4abc1c63ef2c42692f573c3878a53945b4fff362cb26f2862625e528490845"
+    "README.md": "f711bb51fbd5911a4575cbf6daf82ede8d4dbbf4b07cd49d448d0a60369e7107"
   }
 }

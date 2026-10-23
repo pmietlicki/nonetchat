@@ -28,6 +28,7 @@ SWIFT = (
     'apple/ArrivalNotifications.swift',
     'apple/LocalMediaOwnership.swift',
     'apple/RecordingBackupPolicy.swift',
+    'apple/RecordingOutputFile.swift',
     'apple/ReceivedAudioSources.swift',
     'apple/AppleReceivedAudioSources.swift',
     'apple/RegisteredPluginSource.swift',
@@ -44,6 +45,7 @@ NATIVE_TESTS = ('tool/ci/tests/native/apple_local_media_ownership_test.swift',
                 'tool/ci/tests/native/apple_recording_backup_test.swift',
                 'tool/ci/tests/native/received_audio_sources_test.swift',
                 'tool/ci/tests/native/registered_plugin_source_test.swift',
+                'tool/ci/tests/native/recording_output_file_test.swift',
                 'tool/ci/tests/native/apple_received_audio_sdk_test.swift',
                 'tool/ci/tests/native/apple_registration_fixture.swift')
 PUBLIC_INPUTS = SWIFT + NATIVE_TESTS + (
@@ -67,9 +69,8 @@ checks also link the exact WebRTC 150.7871.01 macOS framework (archive and image
 hashes pinned here) and check its runtime bundle. They use receive-only peers
 without SDP, a microphone, a renderer, a file or network traffic; this does not
 prove received audio or recording. No application pub cache is modified.
-An isolated AAC experiment also encodes synthetic silence to MP4 Data, writes
-only a disposable job-temporary file and decodes it locally. It is not a recorder
-integration or a live-media/device validation. No microphone or sound playback.
+An isolated AAC experiment encodes synthetic silence, writes a job-temporary
+file and decodes it locally. It is not a product recorder or device validation.
 Paired WiFiAware remains disabled pending device and provisioning validation.
 
 SOURCE.json records the source revision and each public file's SHA-256.
@@ -192,8 +193,8 @@ def prepare(root):
       receivedAudio = AppleRegistrationFixture.run(registry: flutterViewController)
       DispatchQueue.main.async {
         Task { @MainActor in
-          do { try await SegmentedWriterProbe.run(); NSApplication.shared.terminate(nil) }
-          catch { print("AAC_SEGMENT_PROBE_FAILED: \(error)"); exit(1) }
+          do { try await SegmentedWriterProbe.run(); SegmentedWriterProbe.stage("terminate"); NSApplication.shared.terminate(nil) }
+          catch { print("AAC_SEGMENT_PROBE_FAILED: \(error)"); fflush(stdout); exit(1) }
         }
       }
     } else {
@@ -250,6 +251,13 @@ def check_media_ownership(root):
         ('registered-plugin', 'REGISTERED_PLUGIN', ('apple/RegisteredPluginSource.swift',),
          ('one-instance', 'ambiguous-registration', 'publication-loss', 'registry-loss',
           'sdk-loss', 'independent-retirement', 'retire-before-registration')),
+        ('recording-file', 'RECORDING_FILE', ('apple/RecordingOutputFile.swift',),
+         ('owned-output', 'never-overwrite', 'file-link', 'backup-refusal',
+          'marker-and-account', 'directory-replacement', 'hard-link',
+          'partial-write-and-interruption', 'write-failure', 'sync-failure',
+          'uncertain-close-never-retried', 'retired-during-backup', 'typed-video-name',
+          'marker-tampering', 'output-truncation', 'foreign-fd-reuse-survives',
+          'directory-link', 'marker-link', 'concurrent-close-drains-write')),
     )
     for index, (name, marker, extra, cases) in enumerate(suites):
         executable = directory / name
@@ -373,8 +381,16 @@ def main():
             subprocess.run(['flutter', 'build', 'ios', '--release', '--no-codesign'], cwd=target, check=True)
             subprocess.run(['flutter', 'build', 'macos', '--release'], cwd=target, check=True)
             binary = target / 'build/macos/Build/Products/Release/nonet_apple_validation.app/Contents/MacOS/nonet_apple_validation'
-            result = subprocess.run([str(binary), '--nonet-registration-fixture'],
-                                    capture_output=True, text=True, timeout=120)
+            try:
+                result = subprocess.run([str(binary), '--nonet-registration-fixture'],
+                                        capture_output=True, text=True, timeout=120)
+            except subprocess.TimeoutExpired as error:
+                # run() already stopped and joined this disposable test process.
+                # Keep its exact partial trace instead of hiding the wait stage.
+                for output in (error.stdout, error.stderr):
+                    if output:
+                        print(output.decode('utf-8', errors='replace') if isinstance(output, bytes) else output, end='')
+                raise
             print(result.stdout, end='')
             print(result.stderr, end='')
             cases = ('actual-generated-registration', 'public-forwarding', 'publication-retirement',
