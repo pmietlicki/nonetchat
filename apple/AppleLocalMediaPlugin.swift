@@ -66,6 +66,16 @@ import AppKit
   }
 
   private func handle(_ call: FlutterMethodCall) async -> Any? {
+    if call.method == "protectRecordings" {
+      guard let args = call.arguments as? [String: Any],
+            let version = args["version"] as? NSNumber,
+            CFGetTypeID(version) != CFBooleanGetTypeID(), version == 1,
+            let path = args["path"] as? String else { return Self.failure() }
+      do {
+        let protected = try RecordingBackupPolicy.application().protect(path: path)
+        return ["version": 1, "path": protected, "excluded": true]
+      } catch { return Self.failure() }
+    }
     guard ["present", "capture", "active", "state", "recording", "release"].contains(call.method) else {
       return FlutterMethodNotImplemented
     }

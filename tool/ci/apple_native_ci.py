@@ -22,6 +22,7 @@ SWIFT = (
     'apple/NotificationActions.swift',
     'apple/ArrivalNotifications.swift',
     'apple/LocalMediaOwnership.swift',
+    'apple/RecordingBackupPolicy.swift',
     'apple/LocalMediaHost.swift',
     'apple/AppleLocalMediaPlugin.swift',
     'apple/IOSLocalMediaPresentation.swift',
@@ -30,7 +31,8 @@ SWIFT = (
     'macos/Runner/AppDelegate.swift',
 )
 NATIVE_TESTS = ('tool/ci/tests/native/apple_local_media_ownership_test.swift',
-                'tool/ci/tests/native/apple_local_media_host_test.swift')
+                'tool/ci/tests/native/apple_local_media_host_test.swift',
+                'tool/ci/tests/native/apple_recording_backup_test.swift')
 PUBLIC_INPUTS = SWIFT + NATIVE_TESTS + (
     'apple/APPLE-SAMPLE-LICENSE.txt',
     'tool/ci/apple_native_ci.py',
@@ -185,16 +187,18 @@ def check_media_ownership(root):
     directory = root / 'build/native-media-tests'
     directory.mkdir(parents=True, exist_ok=False)
     suites = (
-        ('ownership', 'LOCAL_MEDIA_SWIFT', (), ('admission', 'roles', 'recording', 'clocks',
+        ('ownership', 'LOCAL_MEDIA_SWIFT', ('apple/LocalMediaOwnership.swift',), ('admission', 'roles', 'recording', 'clocks',
          'scopes', 'exact-account', 'reentrant-reads', 'recording-visibility')),
-        ('host', 'LOCAL_MEDIA_HOST', ('apple/LocalMediaHost.swift',),
+        ('host', 'LOCAL_MEDIA_HOST', ('apple/LocalMediaOwnership.swift', 'apple/LocalMediaHost.swift'),
          ('admission', 'roles', 'late-presentation', 'failed-presentation', 'recording',
           'late-recording', 'lost-recording-indication', 'scopes', 'late-state-removal',
           'maintenance-during-update', 'cancelled-quit', 'stop-retry')),
+        ('backup', 'RECORDING_BACKUP', ('apple/RecordingBackupPolicy.swift',),
+         ('scope', 'levels', 'failures', 'links', 'replacement', 'native-policy')),
     )
     for index, (name, marker, extra, cases) in enumerate(suites):
         executable = directory / name
-        sources = ('apple/LocalMediaOwnership.swift',) + extra + (NATIVE_TESTS[index],)
+        sources = extra + (NATIVE_TESTS[index],)
         subprocess.run(['swiftc', '-swift-version', '5', '-warnings-as-errors',
                         '-strict-concurrency=complete', '-parse-as-library',
                         *(str(root / source) for source in sources), '-o', str(executable)], check=True)
