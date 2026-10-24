@@ -21,6 +21,10 @@ import Glibc
 
   #if os(iOS) || os(macOS)
   static func application() throws -> RecordingBackupPolicy {
+    native(support: try applicationSupportDirectory())
+  }
+
+  static func applicationSupportDirectory() throws -> URL {
     var root = try FileManager.default.url(for: .applicationSupportDirectory,
       in: .userDomainMask, appropriateFor: nil, create: false)
     #if os(macOS)
@@ -31,7 +35,7 @@ import Glibc
     }
     root.appendPathComponent(bundle, isDirectory: true)
     #endif
-    return native(support: root)
+    return root
   }
 
   static func native(support: URL) -> RecordingBackupPolicy {

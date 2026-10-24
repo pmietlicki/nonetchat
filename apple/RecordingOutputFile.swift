@@ -18,6 +18,8 @@ enum RecordingFileContent: Sendable {
   var filename: String { self == .audio ? "audio.m4a" : "video.mp4" }
 }
 
+enum RecordingFileAccess: Sendable { case output, input }
+
 /// Independent of Flutter/WebRTC. Every mutable field and syscall is protected
 /// by lock; injected calls must preserve the same synchronous POSIX semantics.
 /// No SDK sees this descriptor. An uncertain close is never retried: the
@@ -51,6 +53,7 @@ final class RecordingOutputFile: @unchecked Sendable {
   private let support: URL
   private let path: String, account: String, id: String
   let content: RecordingFileContent
+  private let access: RecordingFileAccess
   private let backup: @Sendable (URL) -> Bool
   private let calls: Calls
   private var pins: [Pin] = []
@@ -60,13 +63,16 @@ final class RecordingOutputFile: @unchecked Sendable {
   private var attempted = false, sealed = false, failed = false, uncertain = false
   private var created = false, count = 0
   private var result: RecordingFileClosed?
+  private var readingRetired = false
 
   init(support: URL, path: String, accountHash: String, id: String,
        content: RecordingFileContent = .audio,
+       access: RecordingFileAccess = .output,
        backup: @escaping @Sendable (URL) -> Bool, calls: Calls = Calls()) {
     self.support = support.resolvingSymlinksInPath().standardizedFileURL
     self.path = path; account = accountHash; self.id = id
     self.content = content
+    self.access = access
     self.backup = backup; self.calls = calls
   }
 
@@ -74,7 +80,7 @@ final class RecordingOutputFile: @unchecked Sendable {
   /// owned by this instance until finish() has closed every acquired handle.
   func prepare() -> Bool {
     lock.lock(); defer { lock.unlock() }
-    guard !attempted, !sealed else { return false }
+    guard !attempted, !sealed, !(access == .input && readingRetired) else { return false }
     attempted = true
     guard support.isFileURL, Self.valid(account, count: 64, alphabet: "0123456789abcdef"),
           Self.valid(id, count: 24, alphabet: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-"),
@@ -107,14 +113,19 @@ final class RecordingOutputFile: @unchecked Sendable {
       failed = true; return false
     }
     marker = bytes
+    let flags = access == .output ? O_WRONLY | O_CREAT | O_EXCL : O_RDONLY
     guard unchanged(),
-          pin(openat(parent, content.filename, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, mode_t(0o600)),
+          pin(openat(parent, content.filename, flags | O_NOFOLLOW | O_CLOEXEC, mode_t(0o600)),
               at: directory.appendingPathComponent(content.filename), directory: false) else {
       failed = true; return false
     }
     outputFD = pins.last?.fd
     created = true
-    guard let fd = outputFD, fchmod(fd, mode_t(0o600)) == 0,
+    if access == .input {
+      guard let size = pins.last?.identity.st_size, size > 0, size <= Int.max else { failed = true; return false }
+      count = Int(size)
+    }
+    guard let fd = outputFD, (access == .input || fchmod(fd, mode_t(0o600)) == 0),
           unchanged(), readMarker() == marker else { failed = true; return false }
     return true
   }
@@ -123,7 +134,7 @@ final class RecordingOutputFile: @unchecked Sendable {
   /// lock covers validation and every partial write, so finish cannot overtake.
   func append(_ data: Data) -> Bool {
     lock.lock(); defer { lock.unlock() }
-    guard !sealed, !failed, created, let fd = outputFD else { return false }
+    guard access == .output, !sealed, !failed, created, let fd = outputFD else { return false }
     guard !data.isEmpty, data.count <= Int.max - count,
           unchanged(), readMarker() == marker else { failed = true; return false }
     let written = data.withUnsafeBytes { bytes -> Bool in
@@ -143,6 +154,33 @@ final class RecordingOutputFile: @unchecked Sendable {
     return intact
   }
 
+  /// Read-only callback IO. The SDK receives an owned byte source, never a URL
+  /// or descriptor. A cancellation fences reads but leaves close to its owner.
+  func read(at offset: Int64, into buffer: UnsafeMutableRawPointer, count requested: Int) -> Int? {
+    lock.lock(); defer { lock.unlock() }
+    guard access == .input, !readingRetired, !sealed, !failed, created,
+          let fd = outputFD, offset >= 0, offset <= count, requested >= 0,
+          unchanged(), readMarker() == marker else { return nil }
+    let available = min(requested, count - Int(offset))
+    var total = 0
+    while total < available {
+      let size = pread(fd, buffer.advanced(by: total), available - total, off_t(offset) + off_t(total))
+      if size < 0, errno == EINTR { continue }
+      guard size > 0, size <= available - total else { failed = true; return nil }
+      total += size
+    }
+    guard unchanged(), readMarker() == marker else { failed = true; return nil }
+    return total
+  }
+
+  var byteCount: Int {
+    lock.lock(); defer { lock.unlock() }; return count
+  }
+
+  func retireReads() {
+    lock.lock(); defer { lock.unlock() }; readingRetired = true
+  }
+
   func finish(finalized: Bool) -> RecordingFileClosed {
     lock.lock(); defer { lock.unlock() }
     if let result { return result }
@@ -150,7 +188,7 @@ final class RecordingOutputFile: @unchecked Sendable {
     // Content failure is separate from resource release. A short/failed file
     // can be deleted after positive closure, but cannot become playable.
     if !finalized || !created || count == 0 || !unchanged() || readMarker() != marker { failed = true }
-    if let fd = outputFD, calls.sync(fd) != 0 { failed = true }
+    if access == .output, let fd = outputFD, calls.sync(fd) != 0 { failed = true }
     outputFD = nil; markerFD = nil
     for pinned in pins.reversed() {
       if calls.close(pinned.fd) != 0 { uncertain = true }
@@ -183,6 +221,15 @@ final class RecordingOutputFile: @unchecked Sendable {
             (name.st_mode & mode_t(S_IFMT)) == mode_t(p.directory ? S_IFDIR : S_IFREG),
             p.directory || (name.st_nlink == 1 && handle.st_nlink == 1) else { return false }
       if p.fd == outputFD, handle.st_size != count { return false }
+      if access == .input, p.fd == outputFD {
+        #if canImport(Darwin)
+        guard handle.st_mtimespec.tv_sec == p.identity.st_mtimespec.tv_sec,
+              handle.st_mtimespec.tv_nsec == p.identity.st_mtimespec.tv_nsec else { return false }
+        #else
+        guard handle.st_mtim.tv_sec == p.identity.st_mtim.tv_sec,
+              handle.st_mtim.tv_nsec == p.identity.st_mtim.tv_nsec else { return false }
+        #endif
+      }
     }
     return true
   }

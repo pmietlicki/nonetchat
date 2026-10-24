@@ -65,6 +65,18 @@ extension LocalMediaPresentation {
     owner.binding(token: token, account: account)
   }
 
+  /// A recorder cannot adopt the monitor's disclosure, a retired session or a
+  /// different recording nonce. Foreground is needed for acquisition only.
+  func permitsRecording(_ key: Key, nonce: String, acquiring: Bool) -> Bool {
+    guard !closing, !detached, (!acquiring || pending == nil), releasing == nil,
+          recordingBody != nil, owner.current(key),
+          let value = owner.snapshot, value.key === key,
+          value.role == .listener, value.active, value.presented,
+          value.recording == nonce else { return false }
+    if acquiring && !platform.foreground { return false }
+    return owner.current(key) && owner.ownsRecording(key, nonce: nonce)
+  }
+
   private func render(_ key: Key, recording: Bool = true) -> LocalMediaView? {
     guard owner.matches(key), let base else { return nil }
     let body = recording ? recordingBody ?? base.body : base.body

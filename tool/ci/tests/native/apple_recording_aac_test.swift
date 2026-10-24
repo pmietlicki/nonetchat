@@ -109,7 +109,7 @@ import WebRTC
     }
   }
 
-  static func inspect(_ fixture: Fixture, expectedFrames: Int) async throws {
+  static func inspect(_ fixture: Fixture, expectedFrames: Int, nativeInspection: Bool = false) async throws {
     let data = try Data(contentsOf: fixture.path)
     let asset = AVURLAsset(url: fixture.path)
     let duration = try await asset.load(.duration)
@@ -147,6 +147,16 @@ import WebRTC
     checks.check(first.isFinite && second > first && end >= second)
     let sha = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     print("APPLE_RECORDING_AAC_MEDIA:bytes=\(data.count),duration=\(duration.seconds),frames=\(frames),first=\(first),second=\(second),end=\(end),sha256=\(sha)")
+    if nativeInspection {
+      let input = RecordingOutputFile(support: fixture.root, path: fixture.path.path,
+        accountHash: String(repeating: "a", count: 64), id: String(repeating: "b", count: 24),
+        access: .input, backup: { _ in true })
+      let result = AppleAacInspection.read(input)
+      checks.check(result.file.released && result.file.valid)
+      checks.check(result.metadata?.bytes == data.count)
+      checks.check((result.metadata?.durationUs ?? 0) >= Int64(expectedFrames) * 1_000_000 / 16_000)
+      print("APPLE_RECORDING_INSPECTION_OK:bytes=\(data.count),durationUs=\(result.metadata?.durationUs ?? 0)")
+    }
   }
 
   static func main() async throws {
@@ -156,7 +166,7 @@ import WebRTC
       let result = await fixture.capture { tone($0, rate: rate, channels: channels, blocks: blocks) }
       checks.check(result.file.released && result.file.valid && result.file.bytes > 0)
       checks.check(result.inputFrames == rate && result.inputRate == rate && result.inputChannels == channels)
-      try await inspect(fixture, expectedFrames: 16_000)
+      try await inspect(fixture, expectedFrames: 16_000, nativeInspection: true)
       // A callback after drain cannot alter the positive close or its bytes.
       let saved = try Data(contentsOf: fixture.path)
       tone(fixture.renderer, rate: rate, channels: channels, blocks: 1)
@@ -261,7 +271,7 @@ import WebRTC
       }
       checks.check(result.file.released && result.file.valid && result.inputFrames == 48_000 * 7)
       checks.check(result.initializationSegments == 1 && result.mediaSegments >= 2)
-      try await inspect(fixture, expectedFrames: 16_000 * 7)
+      try await inspect(fixture, expectedFrames: 16_000 * 7, nativeInspection: true)
       print("APPLE_RECORDING_AAC_CASE_OK:live-multiple-segments")
     }
     print("APPLE_RECORDING_AAC_OK:\(checks.count)")

@@ -14,6 +14,7 @@ import AppKit
   private let channel: FlutterMethodChannel
   private let host: LocalMediaHost
   private let receivedAudio: AppleRegisteredAudioSource?
+  private let recording: AppleRecordingBridge
   private var calls = 0
   private var detached = false
   var onDrained: (@MainActor () -> Void)?
@@ -24,14 +25,18 @@ import AppKit
        receivedAudio: AppleRegisteredAudioSource? = nil) {
     self.receivedAudio = receivedAudio
     presentation = IOSLocalMediaPresentation(actions: actions)
-    host = LocalMediaHost(platform: presentation, clock: Self.continuousMs)
+    let nativeHost = LocalMediaHost(platform: presentation, clock: Self.continuousMs)
+    host = nativeHost
+    recording = AppleRecordingBridge(messenger: messenger, host: nativeHost, audio: receivedAudio)
     channel = FlutterMethodChannel(name: "fr.pmietlicki.nonetchat/local_media", binaryMessenger: messenger)
     connect()
   }
   #else
   init(messenger: FlutterBinaryMessenger, receivedAudio: AppleRegisteredAudioSource? = nil) {
     self.receivedAudio = receivedAudio
-    host = LocalMediaHost(platform: MacLocalMediaPresentation(), clock: Self.continuousMs)
+    let nativeHost = LocalMediaHost(platform: MacLocalMediaPresentation(), clock: Self.continuousMs)
+    host = nativeHost
+    recording = AppleRecordingBridge(messenger: messenger, host: nativeHost, audio: receivedAudio)
     channel = FlutterMethodChannel(name: "fr.pmietlicki.nonetchat/local_media", binaryMessenger: messenger)
     connect()
   }
@@ -51,6 +56,7 @@ import AppKit
       channel.invokeMethod("stop", arguments: ["token": key.token, "account": key.account])
     }
     host.onDrained = { [weak self] in self?.drained() }
+    recording.onDrained = { [weak self] in self?.drained() }
     channel.setMethodCallHandler { [weak self] call, result in
       Task { @MainActor in
         guard let self, !self.detached else { return }
@@ -113,6 +119,7 @@ import AppKit
         guard let body = args["body"] as? String else { return Self.failure() }
         return await host.showRecording(key, nonce: nonce, body: body)
       }
+      guard !recording.owns(key, nonce: nonce) else { return Self.failure() }
       return await host.hideRecording(key, nonce: nonce)
     case "release": return await host.release(key) ? nil : Self.failure()
     default: return FlutterMethodNotImplemented
@@ -124,15 +131,22 @@ import AppKit
   }
 
   private func drained() {
-    guard !detached, calls == 0, host.isDrained else { return }
+    guard !detached, calls == 0, host.isDrained, recording.isDrained else { return }
     onDrained?()
   }
 
-  func requestClose() -> Bool { host.requestClose() && calls == 0 }
-  func cancelClose() -> Bool { !detached && calls == 0 && host.cancelClose() }
+  func requestClose() -> Bool {
+    let output = recording.requestClose()
+    let indication = host.requestClose()
+    return output && indication && calls == 0
+  }
+  func cancelClose() -> Bool {
+    !detached && calls == 0 && host.isDrained && recording.isDrained &&
+      host.cancelClose() && recording.cancelClose()
+  }
 
   @discardableResult func detach() -> Bool {
-    guard calls == 0, host.detach() else { return false }
+    guard calls == 0, recording.isDrained, host.detach(), recording.detach() else { return false }
     detached = true
     receivedAudio?.retire()
     channel.setMethodCallHandler(nil)

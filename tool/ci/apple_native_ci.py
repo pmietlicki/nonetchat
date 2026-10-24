@@ -32,6 +32,11 @@ SWIFT = (
     'apple/RecordingPcmQueue.swift',
     'apple/AppleRecordingRenderer.swift',
     'apple/RecordingAacWorker.swift',
+    'apple/RecordingCaptureOwner.swift',
+    'apple/AppleRecordingCapture.swift',
+    'apple/RecordingContainer.swift',
+    'apple/AppleAacInspection.swift',
+    'apple/AppleRecordingBridge.swift',
     'apple/ReceivedAudioSources.swift',
     'apple/AppleReceivedAudioSources.swift',
     'apple/RegisteredPluginSource.swift',
@@ -50,6 +55,8 @@ NATIVE_TESTS = ('tool/ci/tests/native/apple_local_media_ownership_test.swift',
                 'tool/ci/tests/native/registered_plugin_source_test.swift',
                 'tool/ci/tests/native/recording_output_file_test.swift',
                 'tool/ci/tests/native/recording_pcm_queue_test.swift',
+                'tool/ci/tests/native/recording_capture_owner_test.swift',
+                'tool/ci/tests/native/recording_input_file_test.swift',
                 'tool/ci/tests/native/apple_recording_aac_test.swift',
                 'tool/ci/tests/native/apple_received_audio_sdk_test.swift',
                 'tool/ci/tests/native/apple_registration_fixture.swift')
@@ -265,6 +272,17 @@ def check_media_ownership(root):
           'block-bound', 'byte-bound', 'overflow-before-copy', 'copy-failure',
           'ring-wrap-and-retirement', 'seal-wakes-worker', 'concurrent-drain',
           'independent-owners', 'invalid-format-after-retirement')),
+        ('recording-capture', 'RECORDING_CAPTURE', ('apple/RecordingOutputFile.swift', 'apple/RecordingCaptureOwner.swift'),
+         ('ordered-capture-and-drain', 'ineligible-before-borrow', 'missing-selected-source',
+          'revoked-during-borrow', 'retired-during-construction', 'writer-rejects-admission',
+          'stop-before-preparation', 'source-replaced-during-preparation', 'duplicate-preparation',
+          'stop-inside-attachment', 'terminal-source-loss', 'retry-original-detachment',
+          'uncertain-close-is-terminal', 'completion-before-preparation', 'independent-engine-scopes',
+          'retired-before-start')),
+        ('recording-input', 'RECORDING_INPUT', ('apple/RecordingOutputFile.swift', 'apple/RecordingContainer.swift'),
+         ('owned-read-without-write', 'external-reference-rejected', 'missing-reference-rejected',
+          'oversized-atom-rejected', 'read-only-close', 'retire-before-open', 'retire-before-close',
+          'replaced-file-rejected', 'changed-file-rejected', 'ranges-and-late-read')),
     )
     for index, (name, marker, extra, cases) in enumerate(suites):
         executable = directory / name
@@ -370,6 +388,7 @@ def check_recording_aac(root, frameworks):
     executable = directory / 'recording-aac'
     sources = ('apple/RecordingOutputFile.swift', 'apple/RecordingPcmQueue.swift',
                'apple/AppleRecordingRenderer.swift', 'apple/RecordingAacWorker.swift',
+               'apple/RecordingContainer.swift', 'apple/AppleAacInspection.swift',
                'tool/ci/tests/native/apple_recording_aac_test.swift')
     subprocess.run(['swiftc', '-swift-version', '5', '-warnings-as-errors',
                     '-strict-concurrency=complete', '-parse-as-library',
@@ -395,6 +414,7 @@ def check_recording_aac(root, frameworks):
             [line for line in lines if line.startswith('APPLE_RECORDING_AAC_CASE_OK:')] !=
             ['APPLE_RECORDING_AAC_CASE_OK:' + case for case in cases] or
             sum(line.startswith('APPLE_RECORDING_AAC_MEDIA:') for line in lines) != 197 or
+            sum(line.startswith('APPLE_RECORDING_INSPECTION_OK:') for line in lines) != 5 or
             not re.fullmatch(r'APPLE_RECORDING_AAC_OK:[1-9][0-9]*', lines[-1] if lines else '')):
         raise ValueError('Actual Apple recording codec cases did not all execute')
     print('Synthetic renderer/codec/file checks passed; no RTP, microphone or physical device tested')
