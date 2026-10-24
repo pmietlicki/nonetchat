@@ -193,7 +193,7 @@ def prepare(root):
       receivedAudio = AppleRegistrationFixture.run(registry: flutterViewController)
       DispatchQueue.main.async {
         Task { @MainActor in
-          do { try await SegmentedWriterProbe.run(); SegmentedWriterProbe.stage("terminate"); NSApplication.shared.terminate(nil) }
+          do { try await Task.detached { try await SegmentedWriterProbe.run() }.value; SegmentedWriterProbe.stage("terminate"); NSApplication.shared.terminate(nil) }
           catch { print("AAC_SEGMENT_PROBE_FAILED: \(error)"); fflush(stdout); exit(1) }
         }
       }

@@ -201,13 +201,14 @@ private final class ProbeSegments: NSObject, AVAssetWriterDelegate {
   }
 }
 
-@MainActor enum SegmentedWriterProbe {
+enum SegmentedWriterProbe {
   static func stage(_ value: String) { print("AAC_STAGE:\(value)"); fflush(stdout) }
   static func require(_ value: Bool, _ context: String) throws {
     if !value { throw SegmentProbeError.rejected(context) }
   }
 
   static func run() async throws {
+    try require(!Thread.isMainThread, "Codec must run off the UI thread")
     stage("begin")
     let settings: [String: Any] = [AVFormatIDKey: kAudioFormatMPEG4AAC,
       AVSampleRateKey: 16_000, AVNumberOfChannelsKey: 1, AVEncoderBitRateKey: 20_000]
@@ -262,6 +263,7 @@ private final class ProbeSegments: NSObject, AVAssetWriterDelegate {
     try require(writer.status == .completed, "Writer finish: \(String(describing: writer.error))")
     let data = try segments.snapshot()
     stage("segments-joined:\(data.count)")
+    try require(!Thread.isMainThread, "Codec finalization must stay off the UI thread")
     stage("detach-delegate")
     writer.delegate = nil
     stage("delegate-detached")
@@ -297,7 +299,7 @@ private final class ProbeSegments: NSObject, AVAssetWriterDelegate {
     var frames = 0
     while let decoded = output.copyNextSampleBuffer() { frames += CMSampleBufferGetNumSamples(decoded) }
     stage("decoded:\(frames)")
-    try require(reader.status == .completed && frames > 0, "Audio decode complete")
+    try require(reader.status == .completed && frames >= 16_000, "Audio decode complete")
     let sha = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     print("AAC_SEGMENT_PROBE_OK:bytes=\(data.count),duration=\(duration.seconds),frames=\(frames),sha256=\(sha)")
     fflush(stdout)
