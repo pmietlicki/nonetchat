@@ -105,7 +105,9 @@ final class RecordingAacWorker: @unchecked Sendable {
     let writer = AVAssetWriter(contentType: UTType(AVFileType.mp4.rawValue)!)
     let sink = RecordingAacSegments(file: file, writer: writer, trace: segmentTrace)
     self.writer = writer; segments = sink
-    writer.outputFileTypeProfile = .mpeg4AppleHLS
+    // WebKit MediaRecorderPrivateWriterAVFObjC::allTracksAdded uses CMAF for
+    // one track; AppleHLS is reserved there for multiplexed audio + video.
+    writer.outputFileTypeProfile = .mpeg4CMAFCompliant
     writer.initialSegmentStartTime = .zero
     // Apple WWDC20/10011, Configure AVAssetWriter 6:28; encoding requires a
     // positive interval. The indefinite/manual mode is passthrough-only.
