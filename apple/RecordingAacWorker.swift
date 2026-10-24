@@ -19,6 +19,7 @@ struct RecordingAacResult: Sendable {
 /// never acquires a microphone, a peer, a permission, or a file path from an SDK.
 final class RecordingAacWorker: @unchecked Sendable {
   private let file: RecordingOutputFile
+  private let segmentTrace: (@Sendable (Bool, Data) -> Void)?
   let pcm: RecordingPcmQueue
   private let worker = DispatchQueue(label: "fr.pmietlicki.nonetchat.recording-aac")
   private let lock = NSLock()
@@ -38,8 +39,9 @@ final class RecordingAacWorker: @unchecked Sendable {
   private var failure: RecordingAacFailure?
   private var completed: (@Sendable (RecordingAacResult) -> Void)?
 
-  init(file: RecordingOutputFile, pcm: RecordingPcmQueue) {
-    self.file = file; self.pcm = pcm
+  init(file: RecordingOutputFile, pcm: RecordingPcmQueue,
+       segmentTrace: (@Sendable (Bool, Data) -> Void)? = nil) {
+    self.file = file; self.pcm = pcm; self.segmentTrace = segmentTrace
   }
 
   /// Preparation is confirmed before the caller may attach its selected track.
@@ -101,7 +103,7 @@ final class RecordingAacWorker: @unchecked Sendable {
     }
     self.format = format
     let writer = AVAssetWriter(contentType: UTType(AVFileType.mp4.rawValue)!)
-    let sink = RecordingAacSegments(file: file, writer: writer)
+    let sink = RecordingAacSegments(file: file, writer: writer, trace: segmentTrace)
     self.writer = writer; segments = sink
     writer.outputFileTypeProfile = .mpeg4AppleHLS
     writer.initialSegmentStartTime = .zero
@@ -209,16 +211,19 @@ private final class RecordingAacSegments: NSObject, AVAssetWriterDelegate, @unch
   private let lock = NSLock()
   private let file: RecordingOutputFile
   private weak var source: AVAssetWriter?
+  private let trace: (@Sendable (Bool, Data) -> Void)?
   private var sealed = false, failed = false, initialization = false, media = false
   private var initializations = 0, mediaCount = 0
-  init(file: RecordingOutputFile, writer: AVAssetWriter) {
-    self.file = file; source = writer; super.init()
+  init(file: RecordingOutputFile, writer: AVAssetWriter,
+       trace: (@Sendable (Bool, Data) -> Void)?) {
+    self.file = file; source = writer; self.trace = trace; super.init()
   }
   func assetWriter(_ writer: AVAssetWriter, didOutputSegmentData data: Data,
                    segmentType: AVAssetSegmentType, segmentReport: AVAssetSegmentReport?) {
     lock.lock(); defer { lock.unlock() }
     guard !sealed else { return } // No SDK callback may touch the retired FD.
     guard writer === source else { failed = true; return }
+    trace?(segmentType == .initialization, data)
     switch segmentType {
     case .initialization:
       if initializations < Int.max { initializations += 1 } else { failed = true; return }
