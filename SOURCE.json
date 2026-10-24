@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "sourceRevision": "a8f97efb06768e4e1571efe66bb1889a33e9022b",
+  "sourceRevision": "b5a0e3d118ba943c53b14b02f1d7266d4b38875d",
   "scope": "Apple native compilation only",
   "sha256": {
     "apple/AppleFastLanePlugin.swift": "dfe9942a2d558392769bdd72d98bfba00579da50e2706efc83ed25c16f1e139f",
@@ -32,7 +32,7 @@
     "tool/ci/tests/native/registered_plugin_source_test.swift": "2b08211fb442dffcb01d62fc4eac2e484c21e0cf1b79d40037315a2cce82c0c6",
     "tool/ci/tests/native/recording_output_file_test.swift": "ee5560aa3bb06cedd741fa14845f477b8df32c3d3cedd616819ee496ebde57fa",
     "tool/ci/tests/native/recording_pcm_queue_test.swift": "9b274c16e463738b3f758c6453ae5eaaae83e947430448156859070f6571460f",
-    "tool/ci/tests/native/apple_recording_aac_test.swift": "2f527d6cfcf3f23768b6337ffed84526274967020b6fa0a0dc99dec77ff3af85",
+    "tool/ci/tests/native/apple_recording_aac_test.swift": "d0847d7382c8f522fbcbda28c943e326d07bb7d6a9e2dd4895d46aedaf08dc30",
     "tool/ci/tests/native/apple_received_audio_sdk_test.swift": "e255240eabcd00da7e0b4ea3fc7c402f1e636eb3581b627c348bbbeafc53caa0",
     "tool/ci/tests/native/apple_registration_fixture.swift": "87fe6f61a18d1c76fcd1f3e0ce731f64f2162b47489b1dd16a8e9430595dab23",
     "apple/APPLE-SAMPLE-LICENSE.txt": "d4750cf7c6bbdca0c73dea5157c03932cb095c0d66ab2745305fb184ba86a936",

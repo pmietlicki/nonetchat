@@ -35,11 +35,14 @@ import WebRTC
         id: uid, content: content, backup: { _ in true }, calls: calls)
       renderer = AppleRecordingRenderer(queue: queue)
       let traceID = UUID().uuidString
-      let trace: (@Sendable (Bool, Data) -> Void)? = traceSegments ? { initialization, data in
-        let sha = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-        print("APPLE_RECORDING_AAC_SEGMENT:fixture=\(traceID),init=\(initialization),bytes=\(data.count),sha256=\(sha)")
-        fflush(stdout)
-      } : nil
+      let trace: (@Sendable (Bool, Data) -> Void)?
+      if traceSegments {
+        trace = { (initialization: Bool, data: Data) -> Void in
+          let sha = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+          print("APPLE_RECORDING_AAC_SEGMENT:fixture=\(traceID),init=\(initialization),bytes=\(data.count),sha256=\(sha)")
+          fflush(stdout)
+        }
+      } else { trace = nil }
       worker = RecordingAacWorker(file: file, pcm: queue, segmentTrace: trace)
     }
     deinit { try? FileManager.default.removeItem(at: root) }
