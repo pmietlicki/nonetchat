@@ -249,7 +249,7 @@ def check_media_ownership(root):
         ('host', 'LOCAL_MEDIA_HOST', ('apple/LocalMediaOwnership.swift', 'apple/LocalMediaHost.swift'),
          ('admission', 'roles', 'late-presentation', 'failed-presentation', 'recording',
           'late-recording', 'lost-recording-indication', 'scopes', 'late-state-removal',
-          'maintenance-during-update', 'cancelled-quit', 'stop-retry')),
+          'maintenance-during-update', 'cancelled-quit', 'stop-retry', 'recording-admission')),
         ('backup', 'RECORDING_BACKUP', ('apple/RecordingBackupPolicy.swift',),
          ('scope', 'levels', 'failures', 'links', 'replacement', 'native-policy')),
         ('received-audio', 'RECEIVED_AUDIO', ('apple/ReceivedAudioSources.swift',),

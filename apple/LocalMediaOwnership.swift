@@ -135,7 +135,7 @@
     claim = nil; return true
   }
 
-  static func validToken(_ token: String) -> Bool {
+  nonisolated static func validToken(_ token: String) -> Bool {
     token.utf8.count == 24 && token.utf8.allSatisfy {
       (65...90).contains($0) || (97...122).contains($0) ||
       (48...57).contains($0) || $0 == 95 || $0 == 45

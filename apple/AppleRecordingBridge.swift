@@ -10,7 +10,7 @@ import FlutterMacOS
 /// The local channel belongs to the same engine as its native disclosure and
 /// observed WebRTC publication. It never uses the SDK's shared singleton.
 @MainActor final class AppleRecordingBridge {
-  private struct Binding: Equatable {
+  private struct Binding: Equatable, Sendable {
     let id: Int, token: String, file: String
     let session: String, account: String, recording: String
     var fields: [String: Any] {
@@ -36,7 +36,7 @@ import FlutterMacOS
       return result
     }
   }
-  private final class Slot {
+  @MainActor private final class Slot {
     let binding: Binding
     var owner: RecordingCaptureOwner?
     var directory: ReceivedAudioSources?
@@ -44,7 +44,7 @@ import FlutterMacOS
     init(_ binding: Binding) { self.binding = binding }
     var released: Bool { owner?.released ?? true }
   }
-  private struct InspectionBinding: Equatable {
+  private struct InspectionBinding: Equatable, Sendable {
     let token: String, file: String
     var fields: [String: Any] { ["version": 1, "requestToken": token, "fileId": file] }
     init?(_ args: [String: Any]) {
@@ -55,7 +55,7 @@ import FlutterMacOS
       self.token = token; self.file = file
     }
   }
-  private final class Inspection {
+  @MainActor private final class Inspection {
     let binding: InspectionBinding
     let file: RecordingOutputFile?
     var result: AppleAacInspectionResult?
@@ -106,11 +106,12 @@ import FlutterMacOS
 
   private func handle(_ call: FlutterMethodCall, reply: @escaping FlutterResult) {
     if call.method == "recordingCapabilities" {
-      // Enabled only when inspection and playback are part of this engine's
-      // completed backend. Construction/probing never acquires a receiver.
-      reply(0); return
+      // This API-v2 implementation includes owned output, callback-only file
+      // inspection and the existing scoped Darwin preview. A probe does not
+      // acquire a receiver, disclosure, file, permission or microphone.
+      reply(!closing && !detached && audio?.isRegistered == true ? 2 : 0); return
     }
-    if call.method == "nonetAppleInspectCapabilities" { reply(detached ? 0 : 1); return }
+    if call.method == "nonetAppleInspectCapabilities" { reply(closing || detached ? 0 : 1); return }
     if call.method == "nonetAppleInspectAudio" || call.method == "nonetAppleInspectStop" {
       guard let args = call.arguments as? [String: Any], let binding = InspectionBinding(args) else {
         reply(FlutterError(code: "UNAVAILABLE", message: "Invalid recording inspection", details: nil)); return

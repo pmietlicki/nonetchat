@@ -264,6 +264,33 @@ private enum Failure: Error { case failed(String) }
     try check(await f.host.release(owner), "actual drain still releases the retired purpose")
   }
 
+  @MainActor static func recordingAdmission() async throws {
+    let f = HostFixture(); let owner = try await active(f, role: .listener)
+    try check(!f.host.permitsRecording(owner, nonce: nonce, acquiring: true), "no output before disclosure")
+    try check(await f.host.showRecording(owner, nonce: nonce, body: "Enregistrement"), "exact disclosure confirmed")
+    try check(f.host.permitsRecording(owner, nonce: nonce, acquiring: true), "foreground listener admission")
+    try check(!f.host.permitsRecording(owner, nonce: token, acquiring: true), "wrong recording nonce refused")
+    f.view.foreground = false
+    try check(!f.host.permitsRecording(owner, nonce: nonce, acquiring: true), "no background acquisition")
+    try check(f.host.permitsRecording(owner, nonce: nonce, acquiring: false), "existing output may continue behind lock")
+    f.view.foreground = true
+    let gate = Gate(); f.view.existsGate = gate
+    let polling = Task { @MainActor in await f.host.state(owner) }
+    await gate.ready()
+    try check(f.host.permitsRecording(owner, nonce: nonce, acquiring: false), "health poll cannot revoke existing output")
+    try check(!f.host.permitsRecording(owner, nonce: nonce, acquiring: true), "acquisition waits for pending readback")
+    gate.finish(true); try check(await polling.value, "health readback completes")
+    f.host.requestStop(owner)
+    try check(!f.host.permitsRecording(owner, nonce: nonce, acquiring: false), "retirement fences output")
+    try check(await f.host.hideRecording(owner, nonce: nonce), "output drain permits disclosure withdrawal")
+    try check(await f.host.release(owner), "listener released")
+    let g = HostFixture(); let monitor = try await active(g)
+    try check(await g.host.showRecording(monitor, nonce: nonce, body: "Enregistrement"), "monitor shows remote disclosure")
+    try check(!g.host.permitsRecording(monitor, nonce: nonce, acquiring: true), "monitor disclosure never grants output")
+    try check(await g.host.hideRecording(monitor, nonce: nonce), "monitor disclosure closes")
+    try check(await g.host.release(monitor), "monitor released")
+  }
+
   @MainActor static func scopes() async throws {
     let a = HostFixture(), b = HostFixture()
     let old = try await active(a), other = try await active(b)
@@ -312,7 +339,8 @@ private enum Failure: Error { case failed(String) }
         ("failed-presentation", failedPresentation), ("recording", recording),
         ("late-recording", lateRecording), ("lost-recording-indication", lostRecordingIndication), ("scopes", scopes),
         ("late-state-removal", lateStateAndRemoval), ("maintenance-during-update", maintenanceDuringUpdate),
-        ("cancelled-quit", cancelledQuit), ("stop-retry", retryStop)
+        ("cancelled-quit", cancelledQuit), ("stop-retry", retryStop),
+        ("recording-admission", recordingAdmission)
       ] {
         let before = checks
         try await body(); try check(checks > before, "case executes checks")

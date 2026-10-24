@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "sourceRevision": "f19d6f89e891ee919a12df6e9a696d9ddac6d507",
+  "sourceRevision": "70fd47218c43d1647ef4fd0f10eb122f9ccf1fcc",
   "scope": "Apple native compilation only",
   "sha256": {
     "apple/AppleFastLanePlugin.swift": "dfe9942a2d558392769bdd72d98bfba00579da50e2706efc83ed25c16f1e139f",
@@ -9,7 +9,7 @@
     "ios/Runner/AppDelegate.swift": "50bc3abdd9dda26d769efa1d0910bde9a4b5101b21c22a1e83d86b13a6c5da57",
     "apple/NotificationActions.swift": "48628f886c2de79fe0ad07038dd3e769b2d47c3286310aea80ba8e0dab3d7ec5",
     "apple/ArrivalNotifications.swift": "efaf42d5549776567118431ad744493c75a92e12094c21d18b01c106c7a6a8f3",
-    "apple/LocalMediaOwnership.swift": "afed06b3ecdd8783f7ec6e94cb5823e5607c69633f510b5263b1ef002bccfe34",
+    "apple/LocalMediaOwnership.swift": "4a4a8565b8fb23fdb2ef2c11629e0afce4dba1dae03ec3abd9d2e0d6fa52692e",
     "apple/RecordingBackupPolicy.swift": "6c2100ebdf1790e90819b04f8e72d737f3dd0a450b78fd969aff0021dd665295",
     "apple/RecordingOutputFile.swift": "d75aac47877e921475997ee451804f0b43f6c657cea98d355ec8d72b7bf4463d",
     "apple/RecordingPcmQueue.swift": "d5d8412c4b40e7d9e0d71d3226a5b39a76084a57cf11a4dd2e0720670f0fe53f",
@@ -19,7 +19,7 @@
     "apple/AppleRecordingCapture.swift": "e40041fdf4c1d9955f784a0708ff8be0ef2d39fb0e627789b90dcf22b875004f",
     "apple/RecordingContainer.swift": "fc750d80ef4fd06be113ee9230f04b8c12d5bf48f4a2f786f33cdad0a0909fa9",
     "apple/AppleAacInspection.swift": "4ed03a29d938ed4c3a4f4e2b1893f68d9e69b08e3674689aaf75e3f3c4a3b62f",
-    "apple/AppleRecordingBridge.swift": "349a536ed01b85328914ef24ef8ae638050c7c8aa32d1205e9dcb2e7759470ba",
+    "apple/AppleRecordingBridge.swift": "da174400a0cb435eecfc19e680d45d9c4092d7fc20da2771b94dddefa468aa4c",
     "apple/ReceivedAudioSources.swift": "82ce42904afaf8f71c70c381cd591c8d9410523feeeff1715fd9d28332de73df",
     "apple/AppleReceivedAudioSources.swift": "f16e6bcef3eb49df1e5c90e43230062786fb4cec454a450ece074991efdf4bd5",
     "apple/RegisteredPluginSource.swift": "d6a6060a21b058b8610739c9994fb58d40d82e37b05a7e89dad720e51522c5e9",
@@ -31,7 +31,7 @@
     "macos/Runner/MainFlutterWindow.swift": "8adda5738b224e60eae6d7ef6536474e219f463e26f58801ec8f80531f6e9f33",
     "macos/Runner/AppDelegate.swift": "ecbb9cd941286b6c6d2f4cb24c20495a76dc305e5ccc00a5336e31eba1471972",
     "tool/ci/tests/native/apple_local_media_ownership_test.swift": "81d39efdb38ebfc37175d73fbd1d5a8e5bc4b9a8d7c15331d0644b226f6897b7",
-    "tool/ci/tests/native/apple_local_media_host_test.swift": "b4657274e53b91cc7dc1edb23ae8ecc125dd793b58fcf3cce8b3d9446ef0b5a1",
+    "tool/ci/tests/native/apple_local_media_host_test.swift": "54314d83dd1a203d44670101c60f69ad128e161abad94d992ebaaa8117f738b7",
     "tool/ci/tests/native/apple_recording_backup_test.swift": "50ca4fce5bc14f119089ce0fc24b7de71e77ba8e56dc9423f147d2a4c9b6cf7e",
     "tool/ci/tests/native/received_audio_sources_test.swift": "959701c34b1ce82c8b5ef5521482a9aff2d28a77b67e365feff314afcf73dd3f",
     "tool/ci/tests/native/registered_plugin_source_test.swift": "2b08211fb442dffcb01d62fc4eac2e484c21e0cf1b79d40037315a2cce82c0c6",
@@ -43,7 +43,7 @@
     "tool/ci/tests/native/apple_received_audio_sdk_test.swift": "e255240eabcd00da7e0b4ea3fc7c402f1e636eb3581b627c348bbbeafc53caa0",
     "tool/ci/tests/native/apple_registration_fixture.swift": "87fe6f61a18d1c76fcd1f3e0ce731f64f2162b47489b1dd16a8e9430595dab23",
     "apple/APPLE-SAMPLE-LICENSE.txt": "d4750cf7c6bbdca0c73dea5157c03932cb095c0d66ab2745305fb184ba86a936",
-    "tool/ci/apple_native_ci.py": "ef57d1e92f04070a0ab5139a86b75c059f2007f471b6005ae26db0be958a18ad",
+    "tool/ci/apple_native_ci.py": "e75868634cc8fbc61c3a23c424c6ff847a266cdfe9b2fd55ee11bbb7dd3c74c8",
     ".github/workflows/apple-fast-lane.yml": "c0a0fad06044d0446a099db3bbc04d92169552858a03e38c2e4341a081fda712",
     "README.md": "018bc4eaa02c9323a9eddb5a03d8a3b1201d1d82d0541b1ba408fd859d83d6e0"
   }
