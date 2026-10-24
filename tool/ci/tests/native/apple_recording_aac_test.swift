@@ -186,14 +186,16 @@ import WebRTC
       print("APPLE_RECORDING_AAC_CASE_OK:existing-output")
     }
     do {
-      let first = try Fixture(), second = try Fixture()
-      async let a = first.capture { tone($0, rate: 16_000, channels: 1, blocks: 100) }
-      async let b = second.capture { tone($0, rate: 48_000, channels: 2, blocks: 100) }
-      let (one, two) = await (a, b)
-      checks.check(one.file.released && one.file.valid && two.file.released && two.file.valid)
-      checks.check(one.inputFrames == 16_000 && two.inputFrames == 48_000)
-      try await inspect(first, expectedFrames: 16_000)
-      try await inspect(second, expectedFrames: 16_000)
+      for _ in 0..<16 {
+        let first = try Fixture(), second = try Fixture()
+        async let a = first.capture { tone($0, rate: 16_000, channels: 1, blocks: 100) }
+        async let b = second.capture { tone($0, rate: 48_000, channels: 2, blocks: 100) }
+        let (one, two) = await (a, b)
+        checks.check(one.file.released && one.file.valid && two.file.released && two.file.valid)
+        checks.check(one.inputFrames == 16_000 && two.inputFrames == 48_000)
+        try await inspect(first, expectedFrames: 16_000)
+        try await inspect(second, expectedFrames: 16_000)
+      }
       print("APPLE_RECORDING_AAC_CASE_OK:independent-workers")
     }
     do {
