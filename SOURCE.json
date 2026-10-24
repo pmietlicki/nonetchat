@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "sourceRevision": "6f08aa2509ae2666324f2fd8551eca1d22e0d4e8",
+  "sourceRevision": "4efc51b6d6f0aa20556e388098230f3370f5cfde",
   "scope": "Apple native compilation only",
   "sha256": {
     "apple/AppleFastLanePlugin.swift": "dfe9942a2d558392769bdd72d98bfba00579da50e2706efc83ed25c16f1e139f",
@@ -14,7 +14,7 @@
     "apple/RecordingOutputFile.swift": "921e1c327dc905578769a0e8418d3dc524640f865266095cba52dd5a1558db4a",
     "apple/RecordingPcmQueue.swift": "d5d8412c4b40e7d9e0d71d3226a5b39a76084a57cf11a4dd2e0720670f0fe53f",
     "apple/AppleRecordingRenderer.swift": "1ea0c4aa86cfe8e12a0fc3ddcd27552a03a8e4743f6e242d2991cf6a0cac1e33",
-    "apple/RecordingAacWorker.swift": "cb2860e835b3093f8b753271dbb7aed28974d4b3b0d07841c0fd95213e5a4fef",
+    "apple/RecordingAacWorker.swift": "3d5ad16958f81b04a7ebae7a1494556c0eb1e850193c75444c4998cbf43b50cd",
     "apple/ReceivedAudioSources.swift": "82ce42904afaf8f71c70c381cd591c8d9410523feeeff1715fd9d28332de73df",
     "apple/AppleReceivedAudioSources.swift": "f16e6bcef3eb49df1e5c90e43230062786fb4cec454a450ece074991efdf4bd5",
     "apple/RegisteredPluginSource.swift": "d6a6060a21b058b8610739c9994fb58d40d82e37b05a7e89dad720e51522c5e9",

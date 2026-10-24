@@ -28,6 +28,8 @@ final class RecordingAacWorker: @unchecked Sendable {
   private var lifetime: RecordingAacWorker?
   private var writer: AVAssetWriter?
   private var input: AVAssetWriterInput?
+  private var format: AVAudioFormat?
+  private var description: CMAudioFormatDescription?
   private var segments: RecordingAacSegments?
   private var pending: RecordingPcmBlock?
   private var rate = 0, channels = 0
@@ -79,8 +81,16 @@ final class RecordingAacWorker: @unchecked Sendable {
       failure = .inputFormat; pcm.rejectInvalidInput(); complete(valid: false); return
     }
     rate = first.rate; channels = first.channels
-    let sink = RecordingAacSegments(file: file)
+    guard let format = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: Double(rate),
+                                     channels: AVAudioChannelCount(channels), interleaved: true),
+          CMAudioFormatDescriptionCreate(allocator: kCFAllocatorDefault, asbd: format.streamDescription,
+            layoutSize: 0, layout: nil, magicCookieSize: 0, magicCookie: nil, extensions: nil,
+            formatDescriptionOut: &description) == noErr, let description else {
+      failure = .inputFormat; complete(valid: false); return
+    }
+    self.format = format
     let writer = AVAssetWriter(contentType: UTType(AVFileType.mp4.rawValue)!)
+    let sink = RecordingAacSegments(file: file, writer: writer)
     self.writer = writer; segments = sink
     writer.outputFileTypeProfile = .mpeg4AppleHLS
     writer.initialSegmentStartTime = .zero
@@ -90,7 +100,7 @@ final class RecordingAacWorker: @unchecked Sendable {
     writer.delegate = sink // Immutable until writer destruction.
     let settings: [String: Any] = [AVFormatIDKey: kAudioFormatMPEG4AAC,
       AVSampleRateKey: 16_000, AVNumberOfChannelsKey: 1, AVEncoderBitRateKey: 20_000]
-    let input = AVAssetWriterInput(mediaType: .audio, outputSettings: settings)
+    let input = AVAssetWriterInput(mediaType: .audio, outputSettings: settings, sourceFormatHint: description)
     input.expectsMediaDataInRealTime = true
     self.input = input
     guard writer.canApply(outputSettings: settings, forMediaType: .audio), writer.canAdd(input) else {
@@ -118,8 +128,7 @@ final class RecordingAacWorker: @unchecked Sendable {
   private func append(_ block: RecordingPcmBlock, to input: AVAssetWriterInput) -> Bool {
     guard block.rate == rate, block.channels == channels, block.frames > 0,
           block.frames <= Int(UInt32.max), frames <= Int64.max - Int64(block.frames),
-          let format = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: Double(rate),
-                                     channels: AVAudioChannelCount(channels), interleaved: true),
+          let format, let description,
           let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(block.frames)) else { return false }
     buffer.frameLength = AVAudioFrameCount(block.frames)
     let audio = buffer.mutableAudioBufferList.pointee.mBuffers
@@ -127,10 +136,6 @@ final class RecordingAacWorker: @unchecked Sendable {
     block.data.withUnsafeBytes { bytes in
       if let source = bytes.baseAddress { memcpy(destination, source, bytes.count) }
     }
-    var description: CMAudioFormatDescription?
-    guard CMAudioFormatDescriptionCreate(allocator: kCFAllocatorDefault, asbd: format.streamDescription,
-      layoutSize: 0, layout: nil, magicCookieSize: 0, magicCookie: nil, extensions: nil,
-      formatDescriptionOut: &description) == noErr else { return false }
     var timing = CMSampleTimingInfo(duration: CMTime(value: 1, timescale: CMTimeScale(rate)),
       presentationTimeStamp: CMTime(value: frames, timescale: CMTimeScale(rate)), decodeTimeStamp: .invalid)
     var sample: CMSampleBuffer?
@@ -180,7 +185,7 @@ final class RecordingAacWorker: @unchecked Sendable {
       initializationSegments: stream.initializations, mediaSegments: stream.media)
     // Never set AVAssetWriter.delegate after startWriting; status completed
     // rejects that setter with an Objective-C exception in the real SDK.
-    input = nil; writer = nil; segments = nil
+    input = nil; writer = nil; segments = nil; format = nil; description = nil
     lock.lock(); result = proof; lock.unlock()
     let callback = completed; completed = nil
     callback?(proof)
@@ -192,13 +197,17 @@ final class RecordingAacWorker: @unchecked Sendable {
 private final class RecordingAacSegments: NSObject, AVAssetWriterDelegate, @unchecked Sendable {
   private let lock = NSLock()
   private let file: RecordingOutputFile
+  private weak var source: AVAssetWriter?
   private var sealed = false, failed = false, initialization = false, media = false
   private var initializations = 0, mediaCount = 0
-  init(file: RecordingOutputFile) { self.file = file; super.init() }
+  init(file: RecordingOutputFile, writer: AVAssetWriter) {
+    self.file = file; source = writer; super.init()
+  }
   func assetWriter(_ writer: AVAssetWriter, didOutputSegmentData data: Data,
                    segmentType: AVAssetSegmentType, segmentReport: AVAssetSegmentReport?) {
     lock.lock(); defer { lock.unlock() }
     guard !sealed else { return } // No SDK callback may touch the retired FD.
+    guard writer === source else { failed = true; return }
     switch segmentType {
     case .initialization:
       if initializations < Int.max { initializations += 1 } else { failed = true; return }
