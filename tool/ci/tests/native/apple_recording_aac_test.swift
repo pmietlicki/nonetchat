@@ -22,7 +22,8 @@ import WebRTC
     let queue = RecordingPcmQueue()
     let renderer: AppleRecordingRenderer
     let worker: RecordingAacWorker
-    init(content: RecordingFileContent = .audio, calls: RecordingOutputFile.Calls = .init()) throws {
+    init(content: RecordingFileContent = .audio, calls: RecordingOutputFile.Calls = .init(),
+         traceSegments: Bool = false) throws {
       let account = String(repeating: "a", count: 64), uid = String(repeating: "b", count: 24)
       root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
       let leaf = root.appendingPathComponent("NoNetChatRecordings/\(account)/\(uid)", isDirectory: true)
@@ -34,11 +35,12 @@ import WebRTC
         id: uid, content: content, backup: { _ in true }, calls: calls)
       renderer = AppleRecordingRenderer(queue: queue)
       let traceID = UUID().uuidString
-      worker = RecordingAacWorker(file: file, pcm: queue, segmentTrace: { initialization, data in
+      let trace: (@Sendable (Bool, Data) -> Void)? = traceSegments ? { initialization, data in
         let sha = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         print("APPLE_RECORDING_AAC_SEGMENT:fixture=\(traceID),init=\(initialization),bytes=\(data.count),sha256=\(sha)")
         fflush(stdout)
-      })
+      } : nil
+      worker = RecordingAacWorker(file: file, pcm: queue, segmentTrace: trace)
     }
     deinit { try? FileManager.default.removeItem(at: root) }
     func capture(_ produce: @escaping @Sendable (AppleRecordingRenderer) -> Void) async -> RecordingAacResult {
@@ -52,6 +54,27 @@ import WebRTC
       }
       checks.check(worker.closedResult?.file == result.file)
       print("APPLE_RECORDING_AAC_RESULT:released=\(result.file.released),valid=\(result.file.valid),bytes=\(result.file.bytes),frames=\(result.inputFrames),failure=\(String(describing: result.failure)),sdk=\(String(describing: result.sdkErrorCode)),init=\(result.initializationSegments),media=\(result.mediaSegments)")
+      if result.file.released && result.failure == .segments,
+         let data = try? Data(contentsOf: path) {
+        // Inspect only this fixture's closed synthetic bytes; no logging in the
+        // encoder callback, so the production-default path keeps its timing.
+        var offset = 0
+        while data.count - offset >= 8 {
+          var size = data[offset..<offset + 4].reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
+          let name = String(decoding: data[offset + 4..<offset + 8], as: UTF8.self)
+          var header = 8
+          if size == 1 {
+            guard data.count - offset >= 16 else { break }
+            size = data[offset + 8..<offset + 16].reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }; header = 16
+          }
+          if size == 0 { size = UInt64(data.count - offset) }
+          guard size >= header, size <= data.count - offset else { break }
+          let bytes = data.subdata(in: offset..<offset + Int(size))
+          let sha = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+          print("APPLE_RECORDING_AAC_FAILED_BOX:type=\(name),bytes=\(size),sha256=\(sha)")
+          offset += Int(size)
+        }
+      }
       fflush(stdout)
       return result
     }
