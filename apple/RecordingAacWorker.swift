@@ -70,7 +70,18 @@ final class RecordingAacWorker: @unchecked Sendable {
   }
 
   /// Synchronous admission fence; does not wait for a slow codec or disk.
-  func stop() { pcm.seal() }
+  func stop() {
+    pcm.seal()
+    worker.async { [self] in
+      guard closedResult == nil, !finishing, let writer else { return }
+      if writer.status == .failed || writer.status == .cancelled { fail(.writerFinish) }
+      else if writer.status == .writing && pending == nil && pcm.state.blocks == 0 {
+        // End-of-input must not depend on another readiness notification when
+        // all copied samples have already drained. Keep pending samples owned.
+        finish()
+      }
+    }
+  }
 
   var closedResult: RecordingAacResult? {
     lock.lock(); defer { lock.unlock() }; return result
