@@ -29,6 +29,9 @@ SWIFT = (
     'apple/LocalMediaOwnership.swift',
     'apple/RecordingBackupPolicy.swift',
     'apple/RecordingOutputFile.swift',
+    'apple/RecordingPcmQueue.swift',
+    'apple/AppleRecordingRenderer.swift',
+    'apple/RecordingAacWorker.swift',
     'apple/ReceivedAudioSources.swift',
     'apple/AppleReceivedAudioSources.swift',
     'apple/RegisteredPluginSource.swift',
@@ -46,6 +49,8 @@ NATIVE_TESTS = ('tool/ci/tests/native/apple_local_media_ownership_test.swift',
                 'tool/ci/tests/native/received_audio_sources_test.swift',
                 'tool/ci/tests/native/registered_plugin_source_test.swift',
                 'tool/ci/tests/native/recording_output_file_test.swift',
+                'tool/ci/tests/native/recording_pcm_queue_test.swift',
+                'tool/ci/tests/native/apple_recording_aac_test.swift',
                 'tool/ci/tests/native/apple_received_audio_sdk_test.swift',
                 'tool/ci/tests/native/apple_registration_fixture.swift')
 PUBLIC_INPUTS = SWIFT + NATIVE_TESTS + (
@@ -69,8 +74,10 @@ checks also link the exact WebRTC 150.7871.01 macOS framework (archive and image
 hashes pinned here) and check its runtime bundle. They use receive-only peers
 without SDP, a microphone, a renderer, a file or network traffic; this does not
 prove received audio or recording. No application pub cache is modified.
-An isolated AAC experiment encodes synthetic silence, writes a job-temporary
-file and decodes it locally. It is not a product recorder or device validation.
+Separate synthetic PCM checks exercise the copy-only renderer, bounded queue,
+AAC worker and owned temporary files, including 16/44.1/48 kHz conversion and
+positive file closure. They do not receive RTP or use a microphone, a camera,
+the full NoNetChat UI, or a physical Apple device.
 Paired WiFiAware remains disabled pending device and provisioning validation.
 
 SOURCE.json records the source revision and each public file's SHA-256.
@@ -191,12 +198,7 @@ def prepare(root):
     text = text.replace(registration, '''let receivedAudio: AppleRegisteredAudioSource?
     if ProcessInfo.processInfo.arguments.contains("--nonet-registration-fixture") {
       receivedAudio = AppleRegistrationFixture.run(registry: flutterViewController)
-      DispatchQueue.main.async {
-        Task { @MainActor in
-          do { try await Task.detached { try await SegmentedWriterProbe.run() }.value; SegmentedWriterProbe.stage("terminate"); NSApplication.shared.terminate(nil) }
-          catch { print("AAC_SEGMENT_PROBE_FAILED: \\(error)"); fflush(stdout); exit(1) }
-        }
-      }
+      DispatchQueue.main.async { NSApplication.shared.terminate(nil) }
     } else {
       receivedAudio = AppleWebRTCRegistration.register(in: flutterViewController) {
         RegisterGeneratedPlugins(registry: $0)
@@ -258,6 +260,11 @@ def check_media_ownership(root):
           'uncertain-close-never-retried', 'retired-during-backup', 'typed-video-name',
           'marker-tampering', 'output-truncation', 'foreign-fd-reuse-survives',
           'directory-link', 'marker-link', 'concurrent-close-drains-write')),
+        ('recording-pcm', 'RECORDING_PCM', ('apple/RecordingPcmQueue.swift',),
+         ('owned-copy', 'immutable-format', 'invalid-input', 'one-second-bound-and-tail',
+          'block-bound', 'byte-bound', 'overflow-before-copy', 'copy-failure',
+          'ring-wrap-and-retirement', 'seal-wakes-worker', 'concurrent-drain',
+          'independent-owners', 'invalid-format-after-retirement')),
     )
     for index, (name, marker, extra, cases) in enumerate(suites):
         executable = directory / name
@@ -353,6 +360,42 @@ def check_received_audio_sdk(root):
         raise ValueError('Pinned SDK source identity checks did not execute')
     print(result.stdout, end='')
     print('Pinned SDK identity passed; RTP, microphone, renderer and output NOT tested')
+    return frameworks
+
+
+def check_recording_aac(root, frameworks):
+    """Real owned files and synthetic PCM through the actual Apple encoder/renderer."""
+    directory = root / 'build/native-recording-aac'
+    directory.mkdir(parents=True, exist_ok=False)
+    executable = directory / 'recording-aac'
+    sources = ('apple/RecordingOutputFile.swift', 'apple/RecordingPcmQueue.swift',
+               'apple/AppleRecordingRenderer.swift', 'apple/RecordingAacWorker.swift',
+               'tool/ci/tests/native/apple_recording_aac_test.swift')
+    subprocess.run(['swiftc', '-swift-version', '5', '-warnings-as-errors',
+                    '-strict-concurrency=complete', '-parse-as-library',
+                    '-target', platform.machine() + '-apple-macos12.0',
+                    *(str(root / name) for name in sources), '-F', str(frameworks),
+                    '-framework', 'WebRTC', '-Xlinker', '-rpath', '-Xlinker', str(frameworks),
+                    '-o', str(executable)], check=True)
+    try:
+        result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=180)
+    except subprocess.TimeoutExpired as error:
+        for output in (error.stdout, error.stderr):
+            if output:
+                print(output.decode('utf-8', errors='replace') if isinstance(output, bytes) else output, end='')
+        raise
+    print(result.stdout, end='')
+    print(result.stderr, end='')
+    cases = ('mono-16k', 'mono-48k-blocks', 'stereo-48k-blocks', 'stereo-44100-blocks',
+             'no-input', 'stop-before-start', 'wrong-media-type', 'sync-failure', 'write-failure')
+    lines = result.stdout.splitlines()
+    if (result.returncode != 0 or
+            [line for line in lines if line.startswith('APPLE_RECORDING_AAC_CASE_OK:')] !=
+            ['APPLE_RECORDING_AAC_CASE_OK:' + case for case in cases] or
+            sum(line.startswith('APPLE_RECORDING_AAC_MEDIA:') for line in lines) != 4 or
+            not re.fullmatch(r'APPLE_RECORDING_AAC_OK:[1-9][0-9]*', lines[-1] if lines else '')):
+        raise ValueError('Actual Apple recording codec cases did not all execute')
+    print('Synthetic renderer/codec/file checks passed; no RTP, microphone or physical device tested')
 
 
 def main():
@@ -374,7 +417,8 @@ def main():
     else:
         if args.command == 'build':
             check_media_ownership(ROOT)
-            check_received_audio_sdk(ROOT)
+            frameworks = check_received_audio_sdk(ROOT)
+            check_recording_aac(ROOT, frameworks)
         target = prepare(ROOT)
         if args.command == 'build':
             subprocess.run(['flutter', 'pub', 'get'], cwd=target, check=True)
@@ -396,10 +440,10 @@ def main():
             cases = ('actual-generated-registration', 'public-forwarding', 'publication-retirement',
                      'two-real-engines', 'explicit-retirement')
             lines = result.stdout.splitlines()
-            if (result.returncode != 0 or not any(line.startswith('AAC_SEGMENT_PROBE_OK:') for line in lines) or
+            if (result.returncode != 0 or
                     any('APPLE_REGISTRATION_CASE_OK:' + case not in lines for case in cases) or
                     not any(re.fullmatch(r'APPLE_REGISTRATION_OK:[1-9][0-9]*', line) for line in lines)):
-                raise ValueError('Synthetic AAC experiment failed (registration checks also required)')
+                raise ValueError('Actual Apple registration runtime did not pass')
             print('Actual Flutter registration passed; no RTP, microphone, renderer or output tested')
             print('Native compilation passed; full NoNetChat app and radios are NOT validated')
 

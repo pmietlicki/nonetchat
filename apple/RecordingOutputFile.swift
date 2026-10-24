@@ -5,8 +5,10 @@ import Darwin
 import Glibc
 #endif
 
-struct RecordingFileClosed: Equatable {
+struct RecordingFileClosed: Equatable, Sendable {
   let released: Bool
+  /// Byte-stream finalization only. A codec inspector must still establish
+  /// media/container validity before this file can enter playable history.
   let valid: Bool
   let bytes: Int
 }
@@ -48,7 +50,7 @@ final class RecordingOutputFile: @unchecked Sendable {
   private let lock = NSLock()
   private let support: URL
   private let path: String, account: String, id: String
-  private let content: RecordingFileContent
+  let content: RecordingFileContent
   private let backup: @Sendable (URL) -> Bool
   private let calls: Calls
   private var pins: [Pin] = []
