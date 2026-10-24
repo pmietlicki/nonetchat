@@ -28,6 +28,7 @@ SWIFT = (
     'apple/ArrivalNotifications.swift',
     'apple/LocalMediaOwnership.swift',
     'apple/RecordingBackupPolicy.swift',
+    'apple/RecordingOutputFile.swift',
     'apple/ReceivedAudioSources.swift',
     'apple/AppleReceivedAudioSources.swift',
     'apple/RegisteredPluginSource.swift',
@@ -44,6 +45,7 @@ NATIVE_TESTS = ('tool/ci/tests/native/apple_local_media_ownership_test.swift',
                 'tool/ci/tests/native/apple_recording_backup_test.swift',
                 'tool/ci/tests/native/received_audio_sources_test.swift',
                 'tool/ci/tests/native/registered_plugin_source_test.swift',
+                'tool/ci/tests/native/recording_output_file_test.swift',
                 'tool/ci/tests/native/apple_received_audio_sdk_test.swift',
                 'tool/ci/tests/native/apple_registration_fixture.swift')
 PUBLIC_INPUTS = SWIFT + NATIVE_TESTS + (
@@ -242,6 +244,13 @@ def check_media_ownership(root):
         ('registered-plugin', 'REGISTERED_PLUGIN', ('apple/RegisteredPluginSource.swift',),
          ('one-instance', 'ambiguous-registration', 'publication-loss', 'registry-loss',
           'sdk-loss', 'independent-retirement', 'retire-before-registration')),
+        ('recording-file', 'RECORDING_FILE', ('apple/RecordingOutputFile.swift',),
+         ('owned-output', 'never-overwrite', 'file-link', 'backup-refusal',
+          'marker-and-account', 'directory-replacement', 'hard-link',
+          'partial-write-and-interruption', 'write-failure', 'sync-failure',
+          'uncertain-close-never-retried', 'retired-during-backup', 'typed-video-name',
+          'marker-tampering', 'output-truncation', 'foreign-fd-reuse-survives',
+          'directory-link', 'marker-link', 'concurrent-close-drains-write')),
     )
     for index, (name, marker, extra, cases) in enumerate(suites):
         executable = directory / name
@@ -365,8 +374,16 @@ def main():
             subprocess.run(['flutter', 'build', 'ios', '--release', '--no-codesign'], cwd=target, check=True)
             subprocess.run(['flutter', 'build', 'macos', '--release'], cwd=target, check=True)
             binary = target / 'build/macos/Build/Products/Release/nonet_apple_validation.app/Contents/MacOS/nonet_apple_validation'
-            result = subprocess.run([str(binary), '--nonet-registration-fixture'],
-                                    capture_output=True, text=True, timeout=120)
+            try:
+                result = subprocess.run([str(binary), '--nonet-registration-fixture'],
+                                        capture_output=True, text=True, timeout=120)
+            except subprocess.TimeoutExpired as error:
+                # run() already stopped and joined this disposable test process.
+                # Keep its exact partial trace instead of hiding the wait stage.
+                for output in (error.stdout, error.stderr):
+                    if output:
+                        print(output.decode('utf-8', errors='replace') if isinstance(output, bytes) else output, end='')
+                raise
             print(result.stdout, end='')
             print(result.stderr, end='')
             cases = ('actual-generated-registration', 'public-forwarding', 'publication-retirement',
