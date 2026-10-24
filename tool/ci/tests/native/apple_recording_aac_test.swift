@@ -46,11 +46,18 @@ import WebRTC
       worker = RecordingAacWorker(file: file, pcm: queue, segmentTrace: trace)
     }
     deinit { try? FileManager.default.removeItem(at: root) }
-    func capture(_ produce: @escaping @Sendable (AppleRecordingRenderer) -> Void) async -> RecordingAacResult {
+    func capture(asynchronousProducer: Bool = false,
+                 _ produce: @escaping @Sendable (AppleRecordingRenderer) -> Void) async -> RecordingAacResult {
       let result = await withCheckedContinuation { continuation in
         checks.check(worker.start(prepared: { [self] accepted in
-          if accepted { produce(renderer) }
-          worker.stop(); worker.stop()
+          if accepted && asynchronousProducer {
+            DispatchQueue.global().async { [self] in
+              produce(renderer); worker.stop(); worker.stop()
+            }
+          } else {
+            if accepted { produce(renderer) }
+            worker.stop(); worker.stop()
+          }
         }, closed: { continuation.resume(returning: $0) }))
         checks.check(!worker.start(prepared: { _ in preconditionFailure("Duplicate preparation") },
                                   closed: { _ in preconditionFailure("Duplicate close") }))
@@ -83,12 +90,13 @@ import WebRTC
     }
   }
 
-  static func tone(_ renderer: AppleRecordingRenderer, rate: Int, channels: Int, blocks: Int) {
+  static func tone(_ renderer: AppleRecordingRenderer, rate: Int, channels: Int, blocks: Int,
+                   seconds: Int = 1, paced: Bool = false) {
     let frames = rate / blocks
     precondition(frames * blocks == rate)
     let format = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: Double(rate),
                                channels: AVAudioChannelCount(channels), interleaved: true)!
-    for block in 0..<blocks {
+    for block in 0..<blocks * seconds {
       let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames))!
       buffer.frameLength = AVAudioFrameCount(frames)
       let pcm = buffer.int16ChannelData!.pointee
@@ -97,6 +105,7 @@ import WebRTC
         for channel in 0..<channels { pcm[frame * channels + channel] = value }
       }
       renderer.render(pcmBuffer: buffer)
+      if paced { Thread.sleep(forTimeInterval: Double(frames) / Double(rate)) }
     }
   }
 
@@ -105,7 +114,7 @@ import WebRTC
     let asset = AVURLAsset(url: fixture.path)
     let duration = try await asset.load(.duration)
     let tracks = try await asset.loadTracks(withMediaType: .audio)
-    checks.check(tracks.count == 1 && duration.seconds.isFinite && duration.seconds >= 1)
+    checks.check(tracks.count == 1 && duration.seconds.isFinite && duration.seconds >= Double(expectedFrames) / 16_000)
     let reader = try AVAssetReader(asset: asset)
     let output = AVAssetReaderTrackOutput(track: tracks[0], outputSettings: [AVFormatIDKey: kAudioFormatLinearPCM,
       AVSampleRateKey: 16_000, AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16,
@@ -238,6 +247,18 @@ import WebRTC
         try await inspect(fixture, expectedFrames: 16_000)
       }
       print("APPLE_RECORDING_AAC_CASE_OK:repeated-finalization")
+    }
+    do {
+      let fixture = try Fixture()
+      // Cross the cited six-second writer interval by the existing one-second
+      // queue lifetime, feeding on a separate producer as real RTP does.
+      let result = await fixture.capture(asynchronousProducer: true) {
+        tone($0, rate: 48_000, channels: 2, blocks: 100, seconds: 7, paced: true)
+      }
+      checks.check(result.file.released && result.file.valid && result.inputFrames == 48_000 * 7)
+      checks.check(result.initializationSegments == 1 && result.mediaSegments >= 2)
+      try await inspect(fixture, expectedFrames: 16_000 * 7)
+      print("APPLE_RECORDING_AAC_CASE_OK:live-multiple-segments")
     }
     print("APPLE_RECORDING_AAC_OK:\(checks.count)")
   }

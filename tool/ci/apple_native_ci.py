@@ -389,12 +389,12 @@ def check_recording_aac(root, frameworks):
     cases = ('mono-16k', 'mono-48k-blocks', 'stereo-48k-blocks', 'stereo-44100-blocks',
              'no-input', 'stop-before-start', 'wrong-media-type', 'sync-failure', 'write-failure',
              'invalid-renderer-format', 'queue-overrun', 'existing-output', 'independent-workers',
-             'repeated-finalization')
+             'repeated-finalization', 'live-multiple-segments')
     lines = result.stdout.splitlines()
     if (result.returncode != 0 or
             [line for line in lines if line.startswith('APPLE_RECORDING_AAC_CASE_OK:')] !=
             ['APPLE_RECORDING_AAC_CASE_OK:' + case for case in cases] or
-            sum(line.startswith('APPLE_RECORDING_AAC_MEDIA:') for line in lines) != 52 or
+            sum(line.startswith('APPLE_RECORDING_AAC_MEDIA:') for line in lines) != 53 or
             not re.fullmatch(r'APPLE_RECORDING_AAC_OK:[1-9][0-9]*', lines[-1] if lines else '')):
         raise ValueError('Actual Apple recording codec cases did not all execute')
     print('Synthetic renderer/codec/file checks passed; no RTP, microphone or physical device tested')
