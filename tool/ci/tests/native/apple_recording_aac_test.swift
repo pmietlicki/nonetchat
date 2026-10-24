@@ -6,7 +6,10 @@ import WebRTC
   final class Checks: @unchecked Sendable {
     private let lock = NSLock()
     private var total = 0
-    func check(_ value: Bool) { lock.lock(); total += 1; lock.unlock(); precondition(value, "Apple recording check failed") }
+    func check(_ value: Bool, file: StaticString = #fileID, line: UInt = #line) {
+      lock.lock(); total += 1; lock.unlock()
+      precondition(value, "Apple recording check failed", file: file, line: line)
+    }
     var count: Int { lock.lock(); defer { lock.unlock() }; return total }
   }
   static let checks = Checks()
@@ -40,6 +43,8 @@ import WebRTC
                                   closed: { _ in preconditionFailure("Duplicate close") }))
       }
       checks.check(worker.closedResult?.file == result.file)
+      print("APPLE_RECORDING_AAC_RESULT:released=\(result.file.released),valid=\(result.file.valid),bytes=\(result.file.bytes),frames=\(result.inputFrames),failure=\(String(describing: result.failure)),sdk=\(String(describing: result.sdkErrorCode)),init=\(result.initializationSegments),media=\(result.mediaSegments)")
+      fflush(stdout)
       return result
     }
   }
@@ -133,6 +138,48 @@ import WebRTC
       let result = await fixture.capture { tone($0, rate: 16_000, channels: 1, blocks: 100) }
       checks.check(result.file.released && !result.file.valid && result.file.bytes == 0)
       print("APPLE_RECORDING_AAC_CASE_OK:write-failure")
+    }
+    do {
+      let fixture = try Fixture()
+      let result = await fixture.capture { renderer in
+        let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000,
+                                   channels: 1, interleaved: true)!
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 160)!
+        buffer.frameLength = 160; renderer.render(pcmBuffer: buffer)
+      }
+      checks.check(result.file.released && !result.file.valid && result.inputFrames == 0)
+      checks.check(fixture.queue.state.failure == .invalid)
+      print("APPLE_RECORDING_AAC_CASE_OK:invalid-renderer-format")
+    }
+    do {
+      let fixture = try Fixture()
+      let result = await fixture.capture { renderer in
+        tone(renderer, rate: 16_000, channels: 1, blocks: 100)
+        tone(renderer, rate: 16_000, channels: 1, blocks: 1)
+      }
+      checks.check(result.file.released && !result.file.valid && result.inputFrames == 16_000)
+      checks.check(fixture.queue.state.failure == .full)
+      print("APPLE_RECORDING_AAC_CASE_OK:queue-overrun")
+    }
+    do {
+      let fixture = try Fixture()
+      let sentinel = Data("Unrelated existing file".utf8)
+      try sentinel.write(to: fixture.path)
+      let result = await fixture.capture { _ in preconditionFailure("Existing file admitted") }
+      checks.check(result.file.released && !result.file.valid && result.inputFrames == 0)
+      checks.check(try Data(contentsOf: fixture.path) == sentinel)
+      print("APPLE_RECORDING_AAC_CASE_OK:existing-output")
+    }
+    do {
+      let first = try Fixture(), second = try Fixture()
+      async let a = first.capture { tone($0, rate: 16_000, channels: 1, blocks: 100) }
+      async let b = second.capture { tone($0, rate: 48_000, channels: 2, blocks: 100) }
+      let (one, two) = await (a, b)
+      checks.check(one.file.released && one.file.valid && two.file.released && two.file.valid)
+      checks.check(one.inputFrames == 16_000 && two.inputFrames == 48_000)
+      try await inspect(first, expectedFrames: 16_000)
+      try await inspect(second, expectedFrames: 16_000)
+      print("APPLE_RECORDING_AAC_CASE_OK:independent-workers")
     }
     print("APPLE_RECORDING_AAC_OK:\(checks.count)")
   }

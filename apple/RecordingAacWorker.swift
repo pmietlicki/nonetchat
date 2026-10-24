@@ -1,10 +1,17 @@
 import AVFoundation
 import UniformTypeIdentifiers
 
+enum RecordingAacFailure: String, Sendable {
+  case preparation, retired, noInput, inputFormat, settings, writerStart, append, writerFinish, pcm, segments, file
+}
+
 struct RecordingAacResult: Sendable {
   let file: RecordingFileClosed
   let inputRate: Int, inputChannels: Int
   let inputFrames: Int64
+  let failure: RecordingAacFailure?
+  let sdkErrorCode: Int?
+  let initializationSegments: Int, mediaSegments: Int
 }
 
 /// Encoder/file work runs on one private queue. The RTP renderer only copies to
@@ -26,6 +33,7 @@ final class RecordingAacWorker: @unchecked Sendable {
   private var rate = 0, channels = 0
   private var frames: Int64 = 0
   private var finishing = false
+  private var failure: RecordingAacFailure?
   private var completed: (@Sendable (RecordingAacResult) -> Void)?
 
   init(file: RecordingOutputFile, pcm: RecordingPcmQueue) {
@@ -42,13 +50,17 @@ final class RecordingAacWorker: @unchecked Sendable {
     worker.async {
       self.lifetime = self; self.completed = closed
       guard self.pcm.state.accepting, self.file.content == .audio, self.file.prepare() else {
+        self.failure = .preparation
         self.pcm.seal(); prepared(false); self.complete(valid: false); return
       }
       guard self.pcm.state.accepting else {
+        self.failure = .retired
         prepared(false); self.complete(valid: false); return
       }
       prepared(true)
-      guard let first = self.pcm.waitTake() else { self.complete(valid: false); return }
+      guard let first = self.pcm.waitTake() else {
+        self.failure = .noInput; self.complete(valid: false); return
+      }
       self.pending = first
       self.configure(first)
     }
@@ -64,7 +76,7 @@ final class RecordingAacWorker: @unchecked Sendable {
 
   private func configure(_ first: RecordingPcmBlock) {
     guard first.rate > 0, first.rate <= Int(Int32.max), first.channels == 1 || first.channels == 2 else {
-      pcm.rejectInvalidInput(); complete(valid: false); return
+      failure = .inputFormat; pcm.rejectInvalidInput(); complete(valid: false); return
     }
     rate = first.rate; channels = first.channels
     let sink = RecordingAacSegments(file: file)
@@ -82,10 +94,10 @@ final class RecordingAacWorker: @unchecked Sendable {
     input.expectsMediaDataInRealTime = true
     self.input = input
     guard writer.canApply(outputSettings: settings, forMediaType: .audio), writer.canAdd(input) else {
-      fail(); return
+      fail(.settings); return
     }
     writer.add(input)
-    guard writer.startWriting() else { fail(); return }
+    guard writer.startWriting() else { fail(.writerStart); return }
     writer.startSession(atSourceTime: .zero)
     // Our owned PCM queue is a pull source. Readiness notifications preserve a
     // pending block during backpressure; no polling or sample dropping.
@@ -94,12 +106,12 @@ final class RecordingAacWorker: @unchecked Sendable {
 
   private func pump() {
     guard !finishing, let writer, let input else { return }
-    guard writer.status == .writing else { fail(); return }
+    guard writer.status == .writing else { fail(.writerFinish); return }
     while input.isReadyForMoreMediaData {
       let block = pending ?? pcm.waitTake()
       pending = nil
       guard let block else { finish(); return }
-      guard append(block, to: input) else { fail(); return }
+      guard append(block, to: input) else { fail(.append); return }
     }
   }
 
@@ -136,17 +148,21 @@ final class RecordingAacWorker: @unchecked Sendable {
   }
 
   private func finish() {
-    guard !finishing, let writer, let input, writer.status == .writing else { fail(); return }
+    guard !finishing, let writer, let input, writer.status == .writing else { fail(.writerFinish); return }
     finishing = true
     input.markAsFinished()
     writer.finishWriting { [self] in
-      worker.async { self.complete(valid: self.writer?.status == .completed && self.pcm.state.failure == .accepted) }
+      worker.async {
+        if self.writer?.status != .completed { self.failure = .writerFinish }
+        else if self.pcm.state.failure != .accepted { self.failure = .pcm }
+        self.complete(valid: self.failure == nil)
+      }
     }
   }
 
-  private func fail() {
+  private func fail(_ reason: RecordingAacFailure) {
     guard !finishing else { return }
-    finishing = true; pcm.seal(); pending = nil
+    finishing = true; failure = reason; pcm.seal(); pending = nil
     if let writer, writer.status == .writing || writer.status == .unknown { writer.cancelWriting() }
     complete(valid: false)
   }
@@ -155,9 +171,13 @@ final class RecordingAacWorker: @unchecked Sendable {
     lock.lock(); let done = result != nil; lock.unlock()
     guard !done else { return }
     pcm.seal(); pending = nil
-    let streamValid = segments?.seal() ?? false
-    let proof = RecordingAacResult(file: file.finish(finalized: valid && streamValid && frames > 0),
-      inputRate: rate, inputChannels: channels, inputFrames: frames)
+    let stream = segments?.seal() ?? (valid: false, initializations: 0, media: 0)
+    if failure == nil && !stream.valid { failure = .segments }
+    let closed = file.finish(finalized: valid && stream.valid && frames > 0)
+    if failure == nil && !closed.valid { failure = .file }
+    let proof = RecordingAacResult(file: closed, inputRate: rate, inputChannels: channels,
+      inputFrames: frames, failure: failure, sdkErrorCode: (writer?.error as NSError?)?.code,
+      initializationSegments: stream.initializations, mediaSegments: stream.media)
     // Never set AVAssetWriter.delegate after startWriting; status completed
     // rejects that setter with an Objective-C exception in the real SDK.
     input = nil; writer = nil; segments = nil
@@ -173,6 +193,7 @@ private final class RecordingAacSegments: NSObject, AVAssetWriterDelegate, @unch
   private let lock = NSLock()
   private let file: RecordingOutputFile
   private var sealed = false, failed = false, initialization = false, media = false
+  private var initializations = 0, mediaCount = 0
   init(file: RecordingOutputFile) { self.file = file; super.init() }
   func assetWriter(_ writer: AVAssetWriter, didOutputSegmentData data: Data,
                    segmentType: AVAssetSegmentType, segmentReport: AVAssetSegmentReport?) {
@@ -180,16 +201,18 @@ private final class RecordingAacSegments: NSObject, AVAssetWriterDelegate, @unch
     guard !sealed else { return } // No SDK callback may touch the retired FD.
     switch segmentType {
     case .initialization:
+      if initializations < Int.max { initializations += 1 } else { failed = true; return }
       if initialization || media { failed = true; return }; initialization = true
     case .separable:
+      if mediaCount < Int.max { mediaCount += 1 } else { failed = true; return }
       guard initialization else { failed = true; return }; media = true
     @unknown default: failed = true; return
     }
     if !file.append(data) { failed = true }
   }
-  func seal() -> Bool {
+  func seal() -> (valid: Bool, initializations: Int, media: Int) {
     lock.lock(); defer { lock.unlock() }
     sealed = true
-    return !failed && initialization && media
+    return (!failed && initialization && media, initializations, mediaCount)
   }
 }
