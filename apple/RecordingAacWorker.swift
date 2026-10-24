@@ -227,8 +227,9 @@ private final class RecordingAacSegments: NSObject, AVAssetWriterDelegate, @unch
        trace: (@Sendable (Bool, Data) -> Void)?) {
     self.file = file; source = writer; self.trace = trace; super.init()
   }
+  // As in WebKit's WebAVAssetWriterDelegate, no unused report generation.
   func assetWriter(_ writer: AVAssetWriter, didOutputSegmentData data: Data,
-                   segmentType: AVAssetSegmentType, segmentReport: AVAssetSegmentReport?) {
+                   segmentType: AVAssetSegmentType) {
     lock.lock(); defer { lock.unlock() }
     guard !sealed else { return } // No SDK callback may touch the retired FD.
     guard writer === source else { failed = true; return }
