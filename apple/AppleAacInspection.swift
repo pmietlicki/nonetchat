@@ -56,6 +56,8 @@ enum AppleAacInspection {
           let capacity = input.mFramesPerPacket
           var buffer = [Int16](repeating: 0, count: Int(capacity))
           var frames: Int64 = 0, valid = true
+          var firstFrame: Int64 = 0, finalFrame: Int64 = 0
+          valid = ExtAudioFileTell(decoded, &firstFrame) == noErr && firstFrame >= 0
           buffer.withUnsafeMutableBytes { bytes in
             while valid {
               var requested = capacity
@@ -69,13 +71,25 @@ enum AppleAacInspection {
               }
               if requested == 0 { break }
               frames += Int64(requested)
+              guard ExtAudioFileTell(decoded, &finalFrame) == noErr,
+                    firstFrame <= Int64.max - frames, finalFrame == firstFrame + frames else {
+                valid = false; break
+              }
             }
           }
-          if valid && frames > 1 {
+          var storedFrames: Int64 = 0
+          var lengthSize = UInt32(MemoryLayout<Int64>.size)
+          let observedLength = ExtAudioFileGetProperty(decoded, kExtAudioFileProperty_FileLengthFrames,
+            &lengthSize, &storedFrames)
+          // Compare the exact file length reported by the native decoder to
+          // actual reads, never an estimated bitrate duration or wall clock.
+          if valid && frames > 1 && observedLength == noErr && storedFrames == frames &&
+             finalFrame <= Int64.max / 1_000_000 {
             metadata = AppleAacMetadata(bytes: file.byteCount,
-              durationUs: frames * 1_000_000 / 16_000, sampleRate: 16_000, channels: 1,
-              firstSampleUs: 0, secondSampleUs: 1_000_000 / 16_000,
-              endSampleUs: (frames - 1) * 1_000_000 / 16_000)
+              durationUs: storedFrames * 1_000_000 / 16_000, sampleRate: 16_000, channels: 1,
+              firstSampleUs: firstFrame * 1_000_000 / 16_000,
+              secondSampleUs: (firstFrame + 1) * 1_000_000 / 16_000,
+              endSampleUs: (finalFrame - 1) * 1_000_000 / 16_000)
           }
         }
       }

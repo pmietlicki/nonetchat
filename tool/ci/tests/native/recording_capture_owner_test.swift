@@ -10,12 +10,13 @@ import Foundation
   }
   @MainActor final class Source: RecordingCaptureSource {
     var live = true, attached = false, removable = true
+    var attachResult = true
     var attaches = 0, detaches = 0
     var duringAttach: (() -> Void)?
     var duringDetach: (() -> Void)?
     var isCurrent: Bool { live }
     func attach() -> Bool {
-      attaches += 1; attached = true; duringAttach?(); return true
+      attaches += 1; attached = true; duringAttach?(); return attachResult
     }
     func detach() -> Bool {
       detaches += 1; duringDetach?()
@@ -125,6 +126,10 @@ import Foundation
       c.check(f.owner.start()); f.writer.prepared?(true)
       c.check(f.source.attaches == 1 && f.source.detaches == 1 && !f.owner.released)
       f.writer.complete(); c.check(f.owner.released && !f.owner.finalized)
+      let g = Fixture(); g.source.attachResult = false
+      c.check(g.owner.start()); g.writer.prepared?(true)
+      c.check(g.source.detaches == 1 && !g.owner.released)
+      g.writer.complete(); c.check(g.owner.released && !g.owner.finalized)
       print("RECORDING_CAPTURE_CASE_OK:stop-inside-attachment")
     }
     do {

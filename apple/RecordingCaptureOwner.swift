@@ -88,9 +88,9 @@ import Foundation
     }
     // attach can synchronously invoke SDK callbacks. Retirement during it must
     // wait for its return before detach or a positive release can be published.
-    attaching = true
+    attaching = true; attached = true
     let didAttach = source.attach()
-    attaching = false; attached = didAttach
+    attaching = false
     guard didAttach, current, source.isCurrent, current else {
       failed = true; stop(); return
     }
