@@ -394,7 +394,7 @@ def check_recording_aac(root, frameworks):
     if (result.returncode != 0 or
             [line for line in lines if line.startswith('APPLE_RECORDING_AAC_CASE_OK:')] !=
             ['APPLE_RECORDING_AAC_CASE_OK:' + case for case in cases] or
-            sum(line.startswith('APPLE_RECORDING_AAC_MEDIA:') for line in lines) != 53 or
+            sum(line.startswith('APPLE_RECORDING_AAC_MEDIA:') for line in lines) != 197 or
             not re.fullmatch(r'APPLE_RECORDING_AAC_OK:[1-9][0-9]*', lines[-1] if lines else '')):
         raise ValueError('Actual Apple recording codec cases did not all execute')
     print('Synthetic renderer/codec/file checks passed; no RTP, microphone or physical device tested')

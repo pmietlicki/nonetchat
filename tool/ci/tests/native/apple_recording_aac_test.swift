@@ -126,6 +126,10 @@ import WebRTC
       func stamp(_ index: Int) -> Double {
         var timing = CMSampleTimingInfo()
         checks.check(CMSampleBufferGetSampleTimingInfo(sample, at: index, timingInfoOut: &timing) == noErr)
+        // A repeated segment may still decode. Its timestamps must belong to
+        // this exact continuous sample position, including across buffers.
+        checks.check(CMTimeCompare(timing.presentationTimeStamp,
+          CMTime(value: Int64(frames + index), timescale: 16_000)) == 0)
         return timing.presentationTimeStamp.seconds
       }
       // AVAssetReader may aggregate the entire PCM output into one buffer.
@@ -226,7 +230,7 @@ import WebRTC
       print("APPLE_RECORDING_AAC_CASE_OK:existing-output")
     }
     do {
-      for _ in 0..<16 {
+      for _ in 0..<64 {
         let first = try Fixture(), second = try Fixture()
         async let a = first.capture { tone($0, rate: 16_000, channels: 1, blocks: 100) }
         async let b = second.capture { tone($0, rate: 48_000, channels: 2, blocks: 100) }
@@ -240,7 +244,7 @@ import WebRTC
     }
     do {
       // Exercise repeated cold ownership/finalization, not just a warmed writer.
-      for _ in 0..<16 {
+      for _ in 0..<64 {
         let fixture = try Fixture()
         let result = await fixture.capture { tone($0, rate: 16_000, channels: 1, blocks: 100) }
         checks.check(result.file.released && result.file.valid && result.inputFrames == 16_000)
