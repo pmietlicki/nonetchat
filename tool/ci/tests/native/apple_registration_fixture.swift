@@ -202,13 +202,14 @@ private final class ProbeSegments: NSObject, AVAssetWriterDelegate {
 }
 
 enum SegmentedWriterProbe {
+  static func onMainThread() -> Bool { Thread.isMainThread }
   static func stage(_ value: String) { print("AAC_STAGE:\(value)"); fflush(stdout) }
   static func require(_ value: Bool, _ context: String) throws {
     if !value { throw SegmentProbeError.rejected(context) }
   }
 
   static func run() async throws {
-    try require(!Thread.isMainThread, "Codec must run off the UI thread")
+    try require(!onMainThread(), "Codec must run off the UI thread")
     stage("begin")
     let settings: [String: Any] = [AVFormatIDKey: kAudioFormatMPEG4AAC,
       AVSampleRateKey: 16_000, AVNumberOfChannelsKey: 1, AVEncoderBitRateKey: 20_000]
@@ -220,6 +221,9 @@ enum SegmentedWriterProbe {
     // Manual/indefinite mode at 13:45 only permits already encoded passthrough.
     writer.preferredOutputSegmentInterval = CMTime(seconds: 6.0, preferredTimescale: 1)
     writer.delegate = segments
+    // setDelegate is only legal before writing (actual SDK status2 exception).
+    // Keep both objects alive; never detach the delegate after finishWriting.
+    defer { withExtendedLifetime((writer, segments)) {} }
     let input = AVAssetWriterInput(mediaType: .audio, outputSettings: settings)
     try require(writer.canApply(outputSettings: settings, forMediaType: .audio), "AAC settings refused")
     try require(writer.canAdd(input), "Audio input refused")
@@ -263,10 +267,8 @@ enum SegmentedWriterProbe {
     try require(writer.status == .completed, "Writer finish: \(String(describing: writer.error))")
     let data = try segments.snapshot()
     stage("segments-joined:\(data.count)")
-    try require(!Thread.isMainThread, "Codec finalization must stay off the UI thread")
-    stage("detach-delegate")
-    writer.delegate = nil
-    stage("delegate-detached")
+    try require(!onMainThread(), "Codec finalization must stay off the UI thread")
+    stage("delegate-retained")
 
     stage("temporary-directory")
     let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)

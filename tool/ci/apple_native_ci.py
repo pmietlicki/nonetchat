@@ -194,7 +194,7 @@ def prepare(root):
       DispatchQueue.main.async {
         Task { @MainActor in
           do { try await Task.detached { try await SegmentedWriterProbe.run() }.value; SegmentedWriterProbe.stage("terminate"); NSApplication.shared.terminate(nil) }
-          catch { print("AAC_SEGMENT_PROBE_FAILED: \(error)"); fflush(stdout); exit(1) }
+          catch { print("AAC_SEGMENT_PROBE_FAILED: \\(error)"); fflush(stdout); exit(1) }
         }
       }
     } else {
