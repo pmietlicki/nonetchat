@@ -170,6 +170,9 @@ final class RecordingAacWorker: @unchecked Sendable {
   private func finish() {
     guard !finishing, let writer, let input, writer.status == .writing else { fail(.writerFinish); return }
     finishing = true
+    // Close the exact admitted PCM timeline before finishing the input. Apple
+    // otherwise infers an end time during finishWriting, after encoder drain.
+    writer.endSession(atSourceTime: CMTime(value: frames, timescale: CMTimeScale(rate)))
     input.markAsFinished()
     // Like WebKit MediaRecorderPrivateWriterAVFObjC::close, leave the readiness
     // callback before finalizing the writer on its serial work queue.
