@@ -169,11 +169,18 @@ final class RecordingAacWorker: @unchecked Sendable {
     guard !finishing, let writer, let input, writer.status == .writing else { fail(.writerFinish); return }
     finishing = true
     input.markAsFinished()
-    writer.finishWriting { [self] in
-      worker.async {
-        if self.writer?.status != .completed { self.failure = .writerFinish }
-        else if self.pcm.state.failure != .accepted { self.failure = .pcm }
-        self.complete(valid: self.failure == nil)
+    // Like WebKit MediaRecorderPrivateWriterAVFObjC::close, leave the readiness
+    // callback before finalizing the writer on its serial work queue.
+    worker.async { [self] in
+      guard let writer = self.writer, writer.status == .writing else {
+        self.failure = .writerFinish; self.complete(valid: false); return
+      }
+      writer.finishWriting { [self] in
+        worker.async {
+          if self.writer?.status != .completed { self.failure = .writerFinish }
+          else if self.pcm.state.failure != .accepted { self.failure = .pcm }
+          self.complete(valid: self.failure == nil)
+        }
       }
     }
   }
