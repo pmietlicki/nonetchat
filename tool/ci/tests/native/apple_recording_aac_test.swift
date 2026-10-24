@@ -196,6 +196,16 @@ import WebRTC
       try await inspect(second, expectedFrames: 16_000)
       print("APPLE_RECORDING_AAC_CASE_OK:independent-workers")
     }
+    do {
+      // Exercise repeated cold ownership/finalization, not just a warmed writer.
+      for _ in 0..<16 {
+        let fixture = try Fixture()
+        let result = await fixture.capture { tone($0, rate: 16_000, channels: 1, blocks: 100) }
+        checks.check(result.file.released && result.file.valid && result.inputFrames == 16_000)
+        try await inspect(fixture, expectedFrames: 16_000)
+      }
+      print("APPLE_RECORDING_AAC_CASE_OK:repeated-finalization")
+    }
     print("APPLE_RECORDING_AAC_OK:\(checks.count)")
   }
 }
