@@ -262,14 +262,23 @@ private final class ProbeSegments: NSObject, AVAssetWriterDelegate {
     try require(writer.status == .completed, "Writer finish: \(String(describing: writer.error))")
     let data = try segments.snapshot()
     stage("segments-joined:\(data.count)")
+    stage("detach-delegate")
     writer.delegate = nil
+    stage("delegate-detached")
 
+    stage("temporary-directory")
     let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    stage("create-directory")
     try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: false)
+    stage("directory-created")
     defer { try? FileManager.default.removeItem(at: temporary) }
     let url = temporary.appendingPathComponent("synthetic.m4a")
+    stage("write-file")
     try data.write(to: url, options: .withoutOverwriting)
+    stage("file-written")
+    stage("open-asset")
     let asset = AVURLAsset(url: url)
+    stage("asset-opened")
     stage("load-duration")
     let duration = try await asset.load(.duration)
     stage("duration-loaded:\(duration.seconds)")
