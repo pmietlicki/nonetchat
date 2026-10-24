@@ -8,7 +8,10 @@ import WebRTC
     private var total = 0
     func check(_ value: Bool, file: StaticString = #fileID, line: UInt = #line) {
       lock.lock(); total += 1; lock.unlock()
-      precondition(value, "Apple recording check failed", file: file, line: line)
+      if !value {
+        fputs("Apple recording check failed at \(file):\(line)\n", stderr)
+        fflush(stdout); fflush(stderr); exit(1)
+      }
     }
     var count: Int { lock.lock(); defer { lock.unlock() }; return total }
   }
@@ -79,10 +82,22 @@ import WebRTC
     checks.check(reader.canAdd(output)); reader.add(output); checks.check(reader.startReading())
     var frames = 0, first = Double.nan, second = Double.nan, end = Double.nan
     while let sample = output.copyNextSampleBuffer() {
-      let stamp = CMSampleBufferGetPresentationTimeStamp(sample).seconds
-      if first.isNaN { first = stamp } else if second.isNaN { second = stamp }
-      end = stamp
-      frames += CMSampleBufferGetNumSamples(sample)
+      let count = CMSampleBufferGetNumSamples(sample)
+      func stamp(_ index: Int) -> Double {
+        var timing = CMSampleTimingInfo()
+        checks.check(CMSampleBufferGetSampleTimingInfo(sample, at: index, timingInfoOut: &timing) == noErr)
+        return timing.presentationTimeStamp.seconds
+      }
+      // AVAssetReader may aggregate the entire PCM output into one buffer.
+      // Ask CoreMedia for sample-specific times, never require two buffers.
+      if count > 0 {
+        if first.isNaN {
+          first = stamp(0)
+          if count > 1 { second = stamp(1) }
+        } else if second.isNaN { second = stamp(0) }
+        end = stamp(count - 1)
+      }
+      frames += count
     }
     checks.check(reader.status == .completed && frames >= expectedFrames)
     checks.check(first.isFinite && second > first && end >= second)
