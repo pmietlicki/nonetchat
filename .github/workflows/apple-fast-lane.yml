@@ -1,0 +1,29 @@
+name: Compile isolated Apple native components
+on:
+  push:
+    branches: ['apple-ci/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: apple-fast-links-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  compile:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: '3.47.4'
+          cache: true
+      - name: Require the actual WiFiAware SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          sdk_version="$(xcrun --sdk iphoneos --show-sdk-version)"
+          python3 -c 'import sys; assert int(sys.argv[1].split(".")[0]) >= 26, "An iOS 26 SDK is required to compile the gated WiFiAware code"' "$sdk_version"
+      - name: Verify public allowlist and compile actual Swift sources
+        run: python3 tool/ci/apple_native_ci.py build
